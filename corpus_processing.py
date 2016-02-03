@@ -9,7 +9,7 @@ def read_corpus(GMB_path):
     count = 0
     with open('events.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Event', 'Event Predicate', 'Semantics'])
+        csvwriter.writerow(['Path', 'Token', 'Event', 'Event Predicate', 'Semantics', 'Instances'])
     for partition in os.listdir(GMB_path):
         partition_path = GMB_path + '/' + partition  # get path of each partition
         for entry in os.listdir(partition_path):
@@ -50,48 +50,50 @@ def drg_mining(file_path):
                     print('wrong format')
 
         # Get event relations
-        semantics = event_relation(drg_tuples, event_id, node=event_id, relations=[], current_triple=[], triple_num=1)
+        semantics, surface_forms = event_relation(drg_tuples, event_id)
         with open('events.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
             fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
-            csvwriter.writerow([fpath_short, token, event_id, predicate] + semantics)
+            csvwriter.writerow([fpath_short, token, event_id, predicate, ', '.join(semantics), ', '.join(surface_forms)])
 
 
-def event_relation(drg_tuples, event_id, node, relations, current_triple, triple_num):
-    '''This is a recursive function, walking the DR graph to extract all the event relations with their attributes.'''
-    if triple_num == 1:  # c54:patient:1 int k3:p1:e5 4 [ ]
-        for tuple in drg_tuples:
-            if tuple[2] == node and tuple[0][0] != 'k' and tuple[1] != 'instance':  # tuple does not start with "k" and the edge is not of type "instance"
-                current_triple.append(node.split(':')[1])  # e5
-                try:
-                    current_triple.append(tuple[0].split(':')[-2])  # patient
-                except:
-                    print(tuple)
-                node = tuple[0]
-                #return event_relation(drg_tuples, event_id, node, relations, current_triple, 2)
+semtypes = set()
+
+def event_relation(drg_tuples, event_id):
+    '''This is a function, walking the DR graph to extract all the event relations with their attributes.'''
+    current_triple = []
+    relations = []
+    surface_entities = []
+    global semtypes
+    # c54:patient:1 int k3:p1:e5 4 [ ]
+    for tuple in drg_tuples:
+        if tuple[2] == event_id and tuple[0][0] != 'k' and tuple[1] != 'instance':  # tuple does not start with "k" and the edge is not of type "instance"
+            current_triple.append(event_id.split(':')[1])  # e5
+            try:
+                current_triple.append(tuple[0].split(':')[-2])  # patient
+            except:
+                print(tuple)
+            sem_id = tuple[0]
+            # c54:patient:1 ext k3:p1:x16 0 [ ]
+            for tuple in drg_tuples:
+                if tuple[0] == sem_id and tuple[1] == ('ext' or 'int'):
+                    current_triple.append(tuple[2].split(':')[-1])  # x16
+                    inst_id = tuple[2]
+                    triple = current_triple[1] + '(' + current_triple[0] + ', ' + current_triple[2] + ')'
+                    relations.append(triple)  # triple is filled
+                    semtypes.add(current_triple[1])
+
+                    # c49:people:1 instance k3:p1:x16 2 [ people ]
+                    for tuple in drg_tuples:
+                        if tuple[2] == inst_id and tuple[1] == 'instance':
+                            argument = inst_id.split(':')[-1]  # x16
+                            surface_entities.append(tuple[0].split(':')[1] + '(' + argument + ')')  # get lemma "people"
+        current_triple = []
 
 
-    elif triple_num == 2:  # c54:patient:1 ext k3:p1:x16 0 [ ]
-        for tuple in drg_tuples:
-            if tuple[0] == node and tuple[1] == 'ext':
-                current_triple.append(tuple[2].split(':')[-1])  # x16
-                node = tuple[2]
-                triple = current_triple[1] + '(' + current_triple[0] + ', ' + current_triple[2] + ')'
-                relations.append(triple)  # triple is filled
-                current_triple = []
-                #return event_relation(drg_tuples, event_id, node, relations, current_triple, 3)
-                break
-
-    elif triple_num == 3:  # c49:people:1 instance k3:p1:x16 2 [ people ]
-        for tuple in drg_tuples:
-            if tuple[2] == node and tuple[1] == 'instance':
-                argument = node.split(':')[-1]  # x16
-                relations.append(tuple[0].split(':')[1] + '(' + argument + ')')  # get lemma "people"
-                # return event_relation(drg_tuples, event_id, event_id, relations, [], 1)
-                break
-
-    return relations
+    return relations, surface_entities
 
 # function to generate readable triples
 
 read_corpus(GMB_path)
+print(semtypes)
