@@ -1,5 +1,6 @@
 import os
 import csv
+import xml.etree.ElementTree as ET
 
 
 GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
@@ -9,19 +10,22 @@ def read_corpus(GMB_path):
     count = 0
     with open('events.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Event', 'Event Predicate', 'Semantics', 'Instances'])
+        csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Semantics', 'Basic Conditions'])
     for partition in os.listdir(GMB_path):
         partition_path = GMB_path + '/' + partition  # get path of each partition
         for entry in os.listdir(partition_path):
             met = partition_path + '/' + entry + '/en.met'
             drg = partition_path + '/' + entry + '/en.drg'
             tags = partition_path + '/' + entry + '/en.tags'
-            drg_mining(drg)
+            drs = partition_path + '/' + entry + '/en.drs.xml'
+            tokoff = partition_path + '/' + entry + '/en.tok.off'
+            curr_directory = partition_path + '/' + entry + '/'
+            drg_mining(drg, curr_directory)
             count += 1
     print('Number of docs in GMB: {}'.format(count))
 
 
-def drg_mining(file_path):
+def drg_mining(file_path, curr_directory):
     '''Read drg-file. Extract events with their relations.'''
     drg_tuples = []  # tuples of DRG
     with open(file_path, 'r') as f:
@@ -51,13 +55,16 @@ def drg_mining(file_path):
 
         # Get event relations
         semantics, surface_forms = event_relation(drg_tuples, event_id)
+        offset = get_sentences(curr_directory, event_id.split(':')[1], tuple[0].split(':')[1])
         with open('events.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
             fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
-            csvwriter.writerow([fpath_short, token, event_id, predicate, ', '.join(semantics), ', '.join(surface_forms)])
+            csvwriter.writerow([fpath_short, token, event_id, offset, predicate, ', '.join(semantics), ', '.join(surface_forms)])
 
 
 semtypes = set()
+edges = set()
+
 
 def event_relation(drg_tuples, event_id):
     '''This is a function, walking the DR graph to extract all the event relations with their attributes.'''
@@ -67,6 +74,7 @@ def event_relation(drg_tuples, event_id):
     global semtypes
     # c54:patient:1 int k3:p1:e5 4 [ ]
     for tuple in drg_tuples:
+        edges.add(tuple[1])
         if tuple[2] == event_id and tuple[0][0] != 'k' and tuple[1] != 'instance':  # tuple does not start with "k" and the edge is not of type "instance"
             current_triple.append(event_id.split(':')[1])  # e5
             try:
@@ -95,5 +103,22 @@ def event_relation(drg_tuples, event_id):
 
 # function to generate readable triples
 
+
+def get_sentences(curr_directory, event_arg, predicate):
+    '''Read DRS xml file. extract offset of events and sentences'''
+    tree = ET.parse(curr_directory + 'en.drs.xml')
+    root = tree.getroot()
+    for pred in root.iter('pred'):
+        if pred.attrib['arg'] == event_arg and pred.attrib['symbol'] == predicate:
+            offset = pred[0][0].text
+            #  <pred arg="e2" symbol="land" type="v" sense="1"><indexlist><index pos="10">i1010</index></indexlist></pred>
+        else:
+            n = pred.attrib['arg']
+            f = pred.attrib['symbol']
+    return offset
+
+
+
 read_corpus(GMB_path)
 print(semtypes)
+print(edges)
