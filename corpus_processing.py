@@ -3,15 +3,17 @@ import csv
 import xml.etree.ElementTree as ETree
 
 
-GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
+GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent', 'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material', 'patient', 'path', 'pivot', 'product', 'recipient', 'result', 'source', 'stimulus', 'time', 'topic', 'theme', 'trajectory', 'value', 'agent-1', 'asset-1', 'attribute-1', 'beneficiary-1', 'cause-1', 'co-agent-1', 'co-theme-1', 'destination-1', 'extent-1', 'experiencer-1', 'frequency-1', 'goal-1', 'initial_location-1', 'instrument-1', 'location-1', 'manner-1', 'material-1', 'patient-1', 'path-1', 'pivot-1', 'product-1', 'recipient-1', 'result-1', 'source-1', 'stimulus-1', 'time-1', 'topic-1', 'theme-1', 'trajectory-1', 'value-1']
+roles_dict = {}
 
 
 def read_corpus(gmb_path):
     count = 0
-    with open('events.csv', 'w+') as csvfile:
+    global roles_dict
+    with open('events_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles', 'Temporalities', 'Other Semantics', 'Attributes', 'Entities', 'Propositions', 'Surfaces', 'Sentence', 'Guess Offset'])
+        csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles', 'Temporalities', 'Other Semantics [surface form if any]', 'Attributes ("arg" edges) [surface form if any]', 'Entities', 'Propositions', 'Surfaces', 'Sentence', 'Guess Offset'])
     for partition in os.listdir(gmb_path):
         partition_path = gmb_path + '/' + partition  # get path of each partition
         for entry in os.listdir(partition_path):
@@ -19,6 +21,9 @@ def read_corpus(gmb_path):
             count += 1
             drg_mining(curr_directory)
     print('Number of docs in GMB: {}'.format(count))
+    with open('stats_all.txt', 'w+') as f:
+        for roles in sorted(roles_dict, key=roles_dict.get, reverse=True):
+            f.write(str(roles) + '\t' + str(roles_dict[roles]) + '\n')
 
 
 def drg_mining(file_path):
@@ -28,6 +33,7 @@ def drg_mining(file_path):
     # Read en.tags file and build a list of sentences
     sent = []
     sentence = []
+    global roles_dict
     with open(file_path+'en.tags', 'r') as f:
         for line in f:
             token = line.split('\t')[0]
@@ -82,10 +88,12 @@ def drg_mining(file_path):
         else:
             target_sent = 'Unknown'
 
-        with open('events.csv', 'a') as csvfile:
+        with open('events_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
             fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
             csvwriter.writerow([fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(temporalities), ', '.join(semantics), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), ', '.join(surfaces), ' '.join(target_sent), guess])
+
+        roles_dict = calculate_stats(them_roles, roles_dict)
 
 
 semtypes = set()
@@ -95,11 +103,11 @@ edges = set()
 def event_relation(drg_tuples, event_id):
     '''This is a function, walking the DR graph to extract all the event relations with their attributes.'''
     current_triple = ['REL', 'INT', 'EXT']  # contain conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
-    relations = []
     them_roles = []
     temporalities = []
-    instances = []
+    relations = []
     attributes = []
+    instances = []
     surfaces = []
     propositions = []
     global semtypes
@@ -122,10 +130,12 @@ def event_relation(drg_tuples, event_id):
                 current_triple[2] = event_id.split(':')[-1]  # e5
             elif argument == 'arg':  # c57:late:1   arg k2:e5   6   [   late  ]
                 if dtuple[5] != ']':
-                    attributes.append(sem_id.split(':')[-2] + '(' + event_id.split(':')[-1] + ')')
+                    attributes.append(sem_id.split(':')[-2] + '(' + event_id.split(':')[-1] + ') [' + dtuple[5] + ']')
                 else:
-                    attributes.append(sem_id.split(':')[-2] + '(EllipticalAttr)')
-                continue
+                    attributes.append(sem_id.split(':')[-2] + '(' + event_id.split(':')[-1] + ') [EllipticalAttr]')
+            elif argument == 'surface':
+                surfaces.append(dtuple[5])
+
             # c54:patient:1 ext k3:p1:x16 0 [ ]
             for dtuple in drg_tuples:
                 if dtuple[0] == sem_id:   # todo more fine-grained algorithm: int, ext, arg
@@ -141,18 +151,22 @@ def event_relation(drg_tuples, event_id):
                             them_roles.append(triple)
                         elif current_triple[0].startswith('temp'):
                             temporalities.append(triple)
+                            temporalities = get_temporalities(drg_tuples, temporalities, current_triple[0], dtuple)
                         else:
+                            # add surface form if exists
+                            if dtuple[5] != ']':
+                                triple += ' [' + dtuple[5] + ']'
                             relations.append(triple)  # triple is filled
                         semtypes.add(current_triple[0])
 
                         for dtuple in drg_tuples:
                             if dtuple[2] == inst_id:
                                 inst_argument = inst_id.split(':')[-1]  # x16
-                                if dtuple[1] == 'instance': # c49:people:1 instance k3:p1:x16 2 [ people ]
+                                if dtuple[1] == 'instance':  #  c49:people:1 instance k3:p1:x16 2 [ people ]
                                     instances.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')  # get lemma "people"
-                                elif dtuple[1] == 'arg':    # c19:nearly:1  arg k1:x7   2   [   nearly ]
+                                elif dtuple[1] == 'arg':    #  c19:nearly:1  arg k1:x7   2   [   nearly ]
                                     attributes.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
-                                elif dtuple[1] == 'surface':  # k8  surface k8:e17  2   [   and   ]
+                                elif dtuple[1] == 'surface':  #  k8  surface k8:e17  2   [   and   ]
                                     surfaces.append(dtuple[5])
 
                     elif argument == 'ext' and dtuple[1] == 'int':
@@ -163,14 +177,16 @@ def event_relation(drg_tuples, event_id):
                             them_roles.append(triple)
                         elif current_triple[0].startswith('temp'):
                             temporalities.append(triple)
+                            temporalities = get_temporalities(drg_tuples, temporalities, current_triple[0], dtuple)
                         else:
-                            relations.append(triple)  # triple is filled
+                            relations.append(triple)  #  triple is filled
                         semtypes.add(current_triple[0])
 
                         # c209:equality ext k76:x37
                         for dtuple in drg_tuples:
                             eq_node = dtuple[0]
                             if dtuple[2] == inst_id and eq_node.split(':')[-1] == 'equality':
+                                # find_equal_elements(drg_tuples, dtuple, )
                                 for dtuple in drg_tuples:
                                     if dtuple[0] == eq_node:
                                         inst_id_left = dtuple[2]
@@ -179,6 +195,9 @@ def event_relation(drg_tuples, event_id):
                                                 inst_argument = inst_id_left.split(':')[-1]
                                                 instances.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
                                                 instances.append(inst_id + '=' + inst_id_left)
+        # find surfaces k4 surface k4:e10 4 [ because ]
+        if dtuple[2] == event_id and dtuple[1] == 'surface':
+            surfaces.append(dtuple[5])
 
         current_triple = ['REL', 'INT', 'EXT']
     return them_roles, temporalities, relations, attributes, instances, surfaces, propositions
@@ -202,40 +221,100 @@ def get_propositions(drg_tuples, propositions, inst_id):
                     if dtuple[0] == event_node:
                         propositions.append(dtuple[2])  # add event id
                         props = True
+            elif dtuple[1] == 'dominates':  # case of the coordination -- can dominate two or more propositions
+                triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
+                propositions.append(triple)
+                propositions = get_propositions(drg_tuples, propositions, dtuple[2])
+                props = True
+            elif dtuple[1] == 'binary' or dtuple[1] == 'duplex':  # '['k37', 'binary', 'c148:imp', '0', '[', ']']
+                triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
+                propositions.append(triple)
+                bin_node = dtuple[2]
+                for dtuple in drg_tuples:
+                    if dtuple[0] == bin_node:
+                        triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
+                        propositions.append(triple)
+                        propositions = get_propositions(drg_tuples, propositions, dtuple[2])
+                        props = True
+            elif dtuple[1] == 'unary':
+                triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
+                propositions.append(triple)
+                un_node = dtuple[2]
+                for dtuple in drg_tuples:
+                    if dtuple[0] == un_node and dtuple[1] == 'scope':
+                        triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
+                        propositions.append(triple)
+                        propositions = get_propositions(drg_tuples, propositions, dtuple[2])
+                        props = True
+
     if count == 1 and not props:
-        if line[1] == 'unary':
-            triple = line[1] + '(' + line[0] + ', ' + line[2] + ')'
-            propositions.append(triple)
-            for dtuple in drg_tuples:
-                if dtuple[0] == line[2] and dtuple[1] == 'scope':
-                    triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
-                    propositions.append(triple)
-                    propositions = get_propositions(drg_tuples, propositions, dtuple[2])
-                    props = True
-        elif line[1] == 'dominates':
-            triple = line[1] + '(' + line[0] + ', ' + line[2] + ')'
-            propositions.append(triple)
-            propositions = get_propositions(drg_tuples, propositions, line[2])
-            props = True
-        elif line[1] == 'referent':  # ['k3:p3', 'referent', 'k3:p3:p4', '1', '[', 'that', ']']
+        if line[1] == 'referent':  # ['k3:p3', 'referent', 'k3:p3:p4', '1', '[', 'that', ']']
             triple = line[1] + '(' + line[0] + ', ' + line[2] + '), SF: ' + line[5]
             propositions.append(triple)
             propositions = get_propositions(drg_tuples, propositions, line[2])
             props = True
-        elif line[1] == 'binary' or 'duplex':  # '['k37', 'binary', 'c148:imp', '0', '[', ']']
-            triple = line[1] + '(' + line[0] + ', ' + line[2] + ')'
-            propositions.append(triple)
-            for dtuple in drg_tuples:
-                if dtuple[0] == line[2]:
-                    triple = dtuple[1] + '(' + dtuple[0] + ', ' + dtuple[2] + ')'
-                    propositions.append(triple)
-                    propositions = get_propositions(drg_tuples, propositions, dtuple[2])
-                    props = True
-        else:
-            print(line)
     if not props:
-        propositions.append('noEventsFound')
+        propositions.append(inst_id + ': noEventsFound')
     return propositions
+
+
+def get_temporalities(drg_tuples, temporalities, temp_type, ddtuple):
+    '''Extract temporal relations from DRG'''
+    # c27:temp_included:1 ext k1:t2 0 [ ]
+    # c28:equality int k1:t2 0 [ ]
+    # c28:equality ext k1:t1 0 [ ]
+    # c26:now:1 arg k1:t1 0 [ ]
+    if temp_type == 'temp_included' or temp_type == 'temp_overlap' or temp_type == 'temp_abut':
+        for dtuple in drg_tuples:
+            if dtuple[2] == ddtuple[2] and 'equality' in dtuple[0]:
+                pred_type = dtuple[0].split(":")[-2]
+                temporalities = find_equal_elements(drg_tuples, temporalities, dtuple)
+            elif dtuple[2] == ddtuple[2] and ('temp_includes' in dtuple[0] or 'temp_before' in dtuple[0]):
+               temp_type_upd = dtuple[0].split(':')[-2]
+               temporalities = get_temporalities(drg_tuples, temporalities, temp_type_upd, dtuple)
+    elif temp_type == 'temp_includes' or temp_type == 'temp_before':
+        # c81:temp_before:1 ext k28:t6 0 [ ]
+        # c81:temp_before:1 int k28:t1 1 [ ]
+        for dtuple in drg_tuples:
+            if dtuple == ddtuple:
+                continue  # do not consider the element; we need to find its pair, but not itself
+            if dtuple[0] == ddtuple[0]:
+                if ddtuple[1] == 'int':
+                    triple = dtuple[0].split(':')[-2] + '(' + ddtuple[2] + ', ' + dtuple[2] + ')'
+                elif ddtuple[1] == 'ext':
+                    triple = dtuple[0].split(':')[-2] + '(' + dtuple[2] + ', ' + ddtuple[2] + ')'
+                else:
+                    print("wrong format in temporal relations")
+                temporalities.append(triple)
+                inst_id = dtuple[2]
+                for dtuple in drg_tuples:
+                    if dtuple[2] == inst_id and 'equality' in dtuple[0]:
+                        pred_type = dtuple[0].split(":")[-2]
+                        temporalities = find_equal_elements(drg_tuples, temporalities, dtuple)
+                    elif dtuple[2] == inst_id and (dtuple[1] == 'instance' or dtuple[1] == 'arg'):
+                        inst_argument = dtuple[2].split(':')[-1]
+                        temporalities.append(dtuple[0].split(':')[-2] + '(' + inst_argument + ')')
+                break
+    return temporalities
+
+
+def find_equal_elements(drg_tuples, elements, ddtuple):
+    # c28:equality int k1:t2 0 [ ]
+    # c28:equality ext k1:t1 0 [ ]
+    # c26:now:1 arg k1:t1 0 [ ]
+    inst_id = ddtuple[2]
+    eq_node = ddtuple[0]
+    drg_tuples.remove(ddtuple)  # delete the element in order not to find it in the loop
+    for dtuple in drg_tuples:
+        if dtuple[0] == eq_node:
+            inst_id_left = dtuple[2]
+            elements.append(inst_id + '=' + inst_id_left)  # add equal elements
+            for dtuple in drg_tuples:
+                if dtuple[2] == inst_id_left and (dtuple[1] == 'instance' or dtuple[1] == 'arg'):
+                    inst_argument = inst_id_left.split(':')[-1]
+                    elements.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
+            break
+    return elements
 
 
 def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_depth=0):
@@ -245,16 +324,16 @@ def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_de
     offset = ''
     for pred in root.iter('pred'):
         if pred.attrib['arg'] == event_arg and pred.attrib['symbol'] == predicate:
-            # <pred arg="e2" symbol="land" type="v" sense="1"><indexlist><index pos="10">i1010</index></indexlist></pred>
-            # <pred arg="e11" symbol="event" type="v" sense="0"><indexlist></indexlist></pred>
+        # <pred arg="e2" symbol="land" type="v" sense="1"><indexlist><index pos="10">i1010</index></indexlist></pred>
+        # <pred arg="e11" symbol="event" type="v" sense="0"><indexlist></indexlist></pred>
             if len(pred[0]) == 1:
                 offset = pred[0][0].text
             elif len(pred[0]) == 0:
                 offset = 'Not available'
             else:
-               print("no offset found! for {} {} {}".format(curr_directory, event_arg, predicate))
+                print("no offset found! for {} {} {}".format(curr_directory, event_arg, predicate))
     if not offset:
-        # try to find offsets in unmatched DRSs by searching for the event with the id incremented by 1, 2, 3 or substracted by 1, 2, 3
+    # try to find offsets in unmatched DRSs by searching for the event with the id incremented by 1, 2, 3 or substracted by 1, 2, 3
         guess = 'yes'
         if recursion_depth == 0:
             new_event_arg = 'e' + str(int(event_arg[1:]) + 1)
@@ -282,6 +361,20 @@ def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_de
             print("no offset found for {} {} {} due to xml-formatting".format(curr_directory, event_arg, predicate))
 
     return offset, guess
+
+
+def calculate_stats(them_roles, roles_dict):
+    # [agent-1(x25, e9), theme(e9, p4)]
+    roles = []
+    roles += [triple.split('(')[0] for triple in them_roles]
+    roles_sorted = sorted(roles)
+    roles_tuple = tuple(roles_sorted)
+    if roles_tuple in roles_dict:
+        roles_dict[roles_tuple] += 1
+    else:
+        roles_dict[roles_tuple] = 1
+    return roles_dict
+
 
 
 read_corpus(GMB_path)
