@@ -1,19 +1,29 @@
 import os
 import csv
 import xml.etree.ElementTree as ETree
+from collections import defaultdict
 
 
-GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
+GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent', 'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material', 'patient', 'path', 'pivot', 'product', 'recipient', 'result', 'source', 'stimulus', 'time', 'topic', 'theme', 'trajectory', 'value', 'agent-1', 'asset-1', 'attribute-1', 'beneficiary-1', 'cause-1', 'co-agent-1', 'co-theme-1', 'destination-1', 'extent-1', 'experiencer-1', 'frequency-1', 'goal-1', 'initial_location-1', 'instrument-1', 'location-1', 'manner-1', 'material-1', 'patient-1', 'path-1', 'pivot-1', 'product-1', 'recipient-1', 'result-1', 'source-1', 'stimulus-1', 'time-1', 'topic-1', 'theme-1', 'trajectory-1', 'value-1']
+ccg_cats = defaultdict(int)
 roles_dict = {}
+sems_synt = {}
+pred_which_count = 0
+word_which_count = 0
 
 
 def read_corpus(gmb_path):
     count = 0
     global roles_dict
-    with open('events_all.csv', 'w+') as csvfile:
+    global ccg_cats
+    global sems_synt
+    with open('events.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles', 'Temporalities', 'Other Semantics [surface form if any]', 'Attributes ("arg" edges) [surface form if any]', 'Entities', 'Propositions', 'Surfaces', 'Sentence', 'Guess Offset'])
+        csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles', 'Temporalities', 'Other Semantics [surface form if any]', 'Attributes ("arg" edges) [surface form if any]', 'Entities', 'Propositions', 'Surfaces', 'Function words', 'Referents', 'Sentence', 'Guess Offset'])
+    with open('ccg_categories.csv', 'w+') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(['Path', 'Token', 'Offset', 'CCG category', 'Sentence', 'Guess Offset'])
     for partition in os.listdir(gmb_path):
         partition_path = gmb_path + '/' + partition  # get path of each partition
         for entry in os.listdir(partition_path):
@@ -21,19 +31,35 @@ def read_corpus(gmb_path):
             count += 1
             drg_mining(curr_directory)
     print('Number of docs in GMB: {}'.format(count))
-    with open('stats_all.txt', 'w+') as f:
+    with open('stats.txt', 'w+') as f:
         for roles in sorted(roles_dict, key=roles_dict.get, reverse=True):
             f.write(str(roles) + '\t' + str(roles_dict[roles]) + '\n')
+        f.write('\n=====CCG Categories====\n\n')
+        for cats in sorted(ccg_cats, key=ccg_cats.get, reverse=True):
+            f.write(str(cats) + '\t' + str(ccg_cats[cats]) + '\n')
+    out = ''
+    with open('semantics_vs_syntax.txt', 'w+') as f:
+        # sort the sem_synt dict by the sum of values of its embedded dicts
+        sort_func = lambda abr_roles: sum(value for value in sems_synt[abr_roles].values())
+        for abr_roles in sorted(sems_synt, key=lambda abr_roles: sum(value for value in sems_synt[abr_roles].values()), reverse=True):
+            out += str(abr_roles) + '\t' + str(sort_func(abr_roles)) + '\n=========\n'
+            for ccg in sorted(sems_synt[abr_roles], key=sems_synt[abr_roles].get, reverse=True):
+                out += ccg + '\t' + str(sems_synt[abr_roles][ccg]) + '\n'
+            out += '\n\n'
+        f.write(out)
 
 
 def drg_mining(file_path):
     '''Read drg-file. Extract events with their relations.
     file_path '''
-
     # Read en.tags file and build a list of sentences
     sent = []
     sentence = []
     global roles_dict
+    global ccg_cats
+    global sems_synt
+    global word_which_count
+    global pred_which_count
     with open(file_path+'en.tags', 'r') as f:
         for line in f:
             token = line.split('\t')[0]
@@ -79,7 +105,7 @@ def drg_mining(file_path):
                 token = 'EllipticalEvent'
 
         # Get event relations
-        them_roles, temporalities, semantics, attributes, instances, surfaces, propositions = event_relation(drg_tuples, event_id)
+        them_roles, temporalities, semantics, attributes, instances, surfaces, propositions, connectives, connectives2 = event_relation(drg_tuples, event_id)
         # Get offset of the event
         offset, guess = get_sentences(file_path, pure_event_id, predicate)  # i16014
         # Get sentence with the event in question
@@ -88,12 +114,29 @@ def drg_mining(file_path):
         else:
             target_sent = 'Unknown'
 
-        with open('events_all.csv', 'a') as csvfile:
+        fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
+        with open('events.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
-            csvwriter.writerow([fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(temporalities), ', '.join(semantics), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), ', '.join(surfaces), ' '.join(target_sent), guess])
-
-        roles_dict = calculate_stats(them_roles, roles_dict)
+            csvwriter.writerow([fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(temporalities), ', '.join(semantics), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess])
+        # Get ccg categories
+        ccg_category = ccg_categories(token, offset, file_path)
+        with open('ccg_categories.csv', 'a') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow([fpath_short, token, offset, ccg_category, ' '.join(target_sent), guess])
+        # calculate stats of thematic roles and ccg categories
+        roles_dict, ccg_cats, abr_roles = calculate_stats(them_roles, roles_dict, ccg_category, ccg_cats)
+        # abridge semantic roles
+        if abr_roles not in sems_synt:
+            sems_synt[abr_roles] = defaultdict(int)
+            sems_synt[abr_roles][ccg_category] = 1
+        else:
+            sems_synt[abr_roles][ccg_category] += 1
+        # calculate the match between words in sents and predicates in semantics
+        for pred in semantics:
+            if 'which' in pred:
+                pred_which_count += 1
+        if 'which' in target_sent or 'Which' in target_sent:
+            word_which_count += 1
 
 
 semtypes = set()
@@ -110,6 +153,8 @@ def event_relation(drg_tuples, event_id):
     instances = []
     surfaces = []
     propositions = []
+    connectives = []
+    connectives2 = []
     global semtypes
     global roles
     # c54:patient:1 int k3:p1:e5 4 [ ]
@@ -162,12 +207,15 @@ def event_relation(drg_tuples, event_id):
                         for dtuple in drg_tuples:
                             if dtuple[2] == inst_id:
                                 inst_argument = inst_id.split(':')[-1]  # x16
-                                if dtuple[1] == 'instance':  #  c49:people:1 instance k3:p1:x16 2 [ people ]
+                                if dtuple[1] == 'instance':  # c49:people:1 instance k3:p1:x16 2 [ people ]
                                     instances.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')  # get lemma "people"
-                                elif dtuple[1] == 'arg':    #  c19:nearly:1  arg k1:x7   2   [   nearly ]
+                                elif dtuple[1] == 'arg':    # c19:nearly:1  arg k1:x7   2   [   nearly ]
                                     attributes.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
-                                elif dtuple[1] == 'surface':  #  k8  surface k8:e17  2   [   and   ]
+                                elif dtuple[1] == 'surface':  # k8  surface k8:e17  2   [   and   ]
                                     surfaces.append(dtuple[5])
+
+                                if dtuple[1] == 'referent' and dtuple[5] != ']':  # k2 referent k2:x11 1 [ which ]
+                                    connectives.append('referent "' + dtuple[5] + '" (' + inst_argument + ')')
 
                     elif argument == 'ext' and dtuple[1] == 'int':
                         current_triple[1] = dtuple[2].split(':')[-1]  # x16
@@ -179,11 +227,14 @@ def event_relation(drg_tuples, event_id):
                             temporalities.append(triple)
                             temporalities = get_temporalities(drg_tuples, temporalities, current_triple[0], dtuple)
                         else:
-                            relations.append(triple)  #  triple is filled
+                            relations.append(triple)  # triple is filled
                         semtypes.add(current_triple[0])
 
+                        # Search for equivs in drg and extract surface forms from referents if any
                         # c209:equality ext k76:x37
                         for dtuple in drg_tuples:
+                            if dtuple[2] == inst_id and dtuple[1] == 'referent' and dtuple[5] != ']':  # k4:p3 referent k4:p3:x28 1 [ that ]
+                                connectives2.append('referent "' + dtuple[5] + '" (' + inst_id.split(':')[-1] + ')')
                             eq_node = dtuple[0]
                             if dtuple[2] == inst_id and eq_node.split(':')[-1] == 'equality':
                                 # find_equal_elements(drg_tuples, dtuple, )
@@ -198,9 +249,12 @@ def event_relation(drg_tuples, event_id):
         # find surfaces k4 surface k4:e10 4 [ because ]
         if dtuple[2] == event_id and dtuple[1] == 'surface':
             surfaces.append(dtuple[5])
-
+        # find referents and functions with a surface form: k32 function k32:e13 3 [ not ]
+        # discourse_unit = ':'.join(event_id.split(':')[:-1])  # get the id of the discourse unit, e.g. k32
+        # if dtuple[0] == discourse_unit and dtuple[2] == event_id and (dtuple[1] == 'function' or dtuple[1] == 'referent') and dtuple[5] != ']':
+         #   connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
         current_triple = ['REL', 'INT', 'EXT']
-    return them_roles, temporalities, relations, attributes, instances, surfaces, propositions
+    return them_roles, temporalities, relations, attributes, instances, surfaces, propositions, connectives, connectives2
 
 # todo function to generate readable triples
 
@@ -284,7 +338,7 @@ def get_temporalities(drg_tuples, temporalities, temp_type, ddtuple):
                 elif ddtuple[1] == 'ext':
                     triple = dtuple[0].split(':')[-2] + '(' + dtuple[2] + ', ' + ddtuple[2] + ')'
                 else:
-                    print("wrong format in temporal relations")
+                    print('wrong format in temporal relations')
                 temporalities.append(triple)
                 inst_id = dtuple[2]
                 for dtuple in drg_tuples:
@@ -363,7 +417,8 @@ def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_de
     return offset, guess
 
 
-def calculate_stats(them_roles, roles_dict):
+def calculate_stats(them_roles, roles_dict, ccg_category, ccg_cats):
+    # Calculate stats of thematic roles
     # [agent-1(x25, e9), theme(e9, p4)]
     roles = []
     roles += [triple.split('(')[0] for triple in them_roles]
@@ -373,10 +428,42 @@ def calculate_stats(them_roles, roles_dict):
         roles_dict[roles_tuple] += 1
     else:
         roles_dict[roles_tuple] = 1
-    return roles_dict
+    # Calculate stats of ccg categories
+    ccg_cats[ccg_category] += 1
+    # Build abridged semantic representations: agent-1(e, x), theme(e, p)
+    abr_roles = []
+    if not them_roles:
+        abr_roles += ['NoRolesFound']
+    for triple in them_roles:
+        role, two_args = triple.split('(')
+        arg1, arg2 = two_args.split(', ')
+        abr_roles += [role + '(' + arg1[0] + ', ' + arg2[0] + ')']
+    abr_roles_tuple = tuple(sorted(abr_roles))
+    return roles_dict, ccg_cats, abr_roles_tuple
 
+
+def ccg_categories(token, offset, file_path):
+    if token == 'EVENT':
+        return 'NoOffset'
+    # if token == 'EllipticalEvent':
+    sent_num = int(offset[1:])//1000  # offset = i14007
+    token_num = int(offset[-3:])
+    ccg_cats = []
+    sent = []
+    with open(file_path+'en.tags', 'r') as f:
+        for line in f:
+            if line != '\n':
+                sent.append(line.split('\t')[8])
+            else:
+                ccg_cats.append(sent)
+                sent = []
+    ccg_cats.append(sent)  # files don't end with the blank line
+    ccg_cat = ccg_cats[sent_num - 1][token_num - 1]
+    return ccg_cat
 
 
 read_corpus(GMB_path)
 print(semtypes)
-print("Graph edges: {}".format(edges))
+print('Graph edges: {}'.format(edges))
+print('Which in predicates: {}'.format(pred_which_count))
+print('Which in words: {}'.format(word_which_count))
