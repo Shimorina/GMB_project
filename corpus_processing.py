@@ -47,6 +47,8 @@ def read_corpus(gmb_path):
                 out += ccg + '\t' + str(sems_synt[abr_roles][ccg]) + '\n'
             out += '\n\n'
         f.write(out)
+    with open('training_data.txt', 'w+') as f:
+        f.write('#Agent Patient Agent-1 Patient-1 Theme Recipient Recipient-1 Topic SyntacticLabel')
 
 
 def drg_mining(file_path):
@@ -55,6 +57,7 @@ def drg_mining(file_path):
     # Read en.tags file and build a list of sentences
     sent = []
     sentence = []
+    file_train_set = {}
     global roles_dict
     global ccg_cats
     global sems_synt
@@ -105,7 +108,7 @@ def drg_mining(file_path):
                 token = 'EllipticalEvent'
 
         # Get event relations
-        them_roles, temporalities, semantics, attributes, instances, surfaces, propositions, connectives, connectives2 = event_relation(drg_tuples, event_id)
+        them_roles_smart, them_roles, temporalities, semantics, attributes, instances, surfaces, propositions, connectives, connectives2 = event_relation(drg_tuples, event_id)
         # Get offset of the event
         offset, guess = get_sentences(file_path, pure_event_id, predicate)  # i16014
         # Get sentence with the event in question
@@ -137,6 +140,43 @@ def drg_mining(file_path):
                 pred_which_count += 1
         if 'which' in target_sent or 'Which' in target_sent:
             word_which_count += 1
+        # collect training data for each file
+        file_train_set[offset] = [them_roles_smart, ccg_category]
+    # write training data to file
+    # Agent Patient Agent-1 Patient-1 Theme Recipient Recipient-1 Topic
+    with open('training_data.txt', 'a') as f:
+        placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme', 'recipient', 'recipient-1', 'topic']
+        placeholder = ['-', '-', '-', '-', '-', '-', '-', '-']
+        out = ''
+        events = sorted(file_train_set.keys())
+        for i in range(len(events)):
+            event = events[i]
+            next_event = events[i + 1]
+            out += '#' + event + '---->' + next_event + '\n'
+            features, label = file_train_set[event]
+            features2, label2 = file_train_set[next_event]
+            # check if two sets have same arguments
+            arguments = [feat.split(':') for feat in features]
+            arguments2 = [feat.split(':') for feat in features2]
+            common_elements = set(arguments).intersection(arguments2)
+            if common_elements:
+                replacements = ['X', 'Y', 'Z', 'W', 'U']
+                j = 0
+                for element in common_elements:
+                    for n, feat in enumerate(features):
+                        argument = feat.split(':')[1]
+                        if argument == element:
+                            features[n] = feat.replace(argument, replacements[j])
+                    for n, feat in enumerate(features2):
+                        argument = feat.split(':')[1]
+                        if argument == element:
+                            features2[n] = feat.replace(argument, replacements[j])
+                    j += 1
+
+            # replace all other args with a, b, c, d, e, f, g...
+
+        f.write(out)
+
 
 
 semtypes = set()
@@ -147,6 +187,7 @@ def event_relation(drg_tuples, event_id):
     '''This is a function, walking the DR graph to extract all the event relations with their attributes.'''
     current_triple = ['REL', 'INT', 'EXT']  # contain conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
     them_roles = []
+    them_roles_smart = []
     temporalities = []
     relations = []
     attributes = []
@@ -194,6 +235,7 @@ def event_relation(drg_tuples, event_id):
                         triple = current_triple[0] + '(' + current_triple[1] + ', ' + current_triple[2] + ')'
                         if current_triple[0] in roles:
                             them_roles.append(triple)
+                            them_roles_smart.append(current_triple[0] + ':' + current_triple[2])
                         elif current_triple[0].startswith('temp'):
                             temporalities.append(triple)
                             temporalities = get_temporalities(drg_tuples, temporalities, current_triple[0], dtuple)
@@ -223,6 +265,7 @@ def event_relation(drg_tuples, event_id):
                         triple = current_triple[0] + '(' + current_triple[1] + ', ' + current_triple[2] + ')'
                         if current_triple[0] in roles:
                             them_roles.append(triple)
+                            them_roles_smart.append(current_triple[0] + ':' + current_triple[1])
                         elif current_triple[0].startswith('temp'):
                             temporalities.append(triple)
                             temporalities = get_temporalities(drg_tuples, temporalities, current_triple[0], dtuple)
@@ -254,7 +297,7 @@ def event_relation(drg_tuples, event_id):
         # if dtuple[0] == discourse_unit and dtuple[2] == event_id and (dtuple[1] == 'function' or dtuple[1] == 'referent') and dtuple[5] != ']':
          #   connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
         current_triple = ['REL', 'INT', 'EXT']
-    return them_roles, temporalities, relations, attributes, instances, surfaces, propositions, connectives, connectives2
+    return them_roles_smart, them_roles, temporalities, relations, attributes, instances, surfaces, propositions, connectives, connectives2
 
 # todo function to generate readable triples
 
