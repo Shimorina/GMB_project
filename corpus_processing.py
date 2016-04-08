@@ -1,5 +1,6 @@
 import os
 import csv
+import string
 import itertools
 import xml.etree.ElementTree as ETree
 from collections import defaultdict
@@ -170,8 +171,10 @@ def drg_mining(file_path):
             word_which_count += 1
         # collect training data for each file
         ccg_cat_norm = normalise_ccg_cat(ccg_category)
-        # put all events of one file to the dict having the structure: i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
-        file_train_set[offset] = [them_roles_smart, ccg_cat_norm]
+        # put all events of one file to dict with the structure: i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+        # we do not consider events marked as EVENT
+        if offset != 'Not available':
+            file_train_set[offset] = [them_roles_smart, ccg_cat_norm]
 
     # write training data to file
     '''with open('training_data_pairs_all.txt', 'a') as f:
@@ -180,11 +183,13 @@ def drg_mining(file_path):
         replacements = ['X', 'Y', 'Z', 'W', 'U']
         out = ''
         events = sorted(file_train_set.keys())
-        # for each pair of events, we will extract features and set them to 1 or to X if roles of two events have the argument in common
+        # for each pair of events, we will extract features and set them to 1 or to X
+        # if roles of two events have the argument in common
         for i in range(len(events) - 1):
             event = events[i]
             next_event = events[i + 1]
-            if event[1] != next_event[1]:  # events must be in one sentence! (the second letter of offset is equal to the sent number)
+            # events must be in one sentence! (the second letter of offset is equal to the sent number)
+            if event[1] != next_event[1]:
                 continue
             out += '#' + event + ' ---> ' + next_event + ' from ' + fpath_short + '\n'
             features, label = file_train_set[event]
@@ -243,78 +248,7 @@ def drg_mining(file_path):
         f.write(out)'''
 
     # write training data for CRFs to file
-    with open('training_data.txt', 'a') as f:  ## i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
-        placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme', 'theme-1', 'recipient', 'recipient-1', 'topic']
-        placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-']
-        sent_placeholder = []
-        replacements = ['X', 'Y', 'Z', 'W', 'U']
-        out2 = ''
-        # group events by sentences
-        events = sorted(file_train_set.keys())
-        sents = []   # contains dicts of events for each sentence: [{i100:[[roles], label], i109:[[roles], label], ...}, {i203:...}, {}, ...]
-        for event in events:
-            sent_number = int(event[1])  # i3010
-            if len(sents) < sent_number:
-                sents.insert(sent_number-1, {})
-                sents[sent_number - 1][event] = file_train_set[event]
-            else:
-                sents[sent_number - 1][event] = file_train_set[event]
-        # for each sentence, extract features and set them to 1 or to X, Y, etc if roles have the argument in common
-        for sent in sents:
-            out2 += '#' + '--->'.join(sorted(sent.keys())) + ' from ' + fpath_short + '\n'
-            sent_args = []  # contains lists of args for each event
-            for event in sent:
-                features, label = file_train_set[event]
-                arguments = [feat.split(':')[1] for feat in features]
-                sent_args.append(arguments)
-            # for each pair of events, check if they have elements in common
-            common_elements = []
-            for combination in itertools.combinations(sent_args, len(placeholder_dict)):
-                common_elements.append(set(combination))
-
-            # replace common args with X, Y, Z, etc in a placeholder
-            if common_elements:
-                j = 0  # iterate over replacements: X, Y, Z, etc
-                for element in common_elements:
-                    # find the role of the common element and replace it with X
-                    # do it for the first event in a pair
-                    for feat in features:
-                        role, argument = feat.split(':')
-                        if element == argument:
-                            role_index = placeholder_dict.index(role)
-                            placeholder_with_x_first = list(placeholder)
-                            placeholder_with_x_first[role_index] = replacements[j]
-                    # for the second event in a pair
-                    for feat in features:
-                        role, argument = feat.split(':')
-                        if element == argument:
-                            role_index = placeholder_dict.index(role)
-                            placeholder_with_x_second = list(placeholder)
-                            placeholder_with_x_second[role_index] = replacements[j]
-                    j += 1
-            else:
-                placeholder_with_x_first = list(placeholder)
-                placeholder_with_x_second = list(placeholder)
-
-            # replace all other args with 1 except for X
-            for feature in features:
-                role, argument = feature.split(':')
-                role_index = placeholder_dict.index(role)
-                if placeholder_with_x_first[role_index] not in replacements:
-                    placeholder_with_x_first[role_index] = '1'
-            # write to output the first event
-            out2 += ('\t').join(placeholder_with_x_first) + '\t' + label + '\n'
-
-            # replace all other args with 1 except for X
-            for feature in features:
-                role, argument = feature.split(':')
-                role_index = placeholder_dict.index(role)
-                if placeholder_with_x_second[role_index] not in replacements:
-                    placeholder_with_x_second[role_index] = '1'
-            # write to output the second event
-            out2 += '\t'.join(placeholder_with_x_second) + '\t' + label + '\n\n'
-
-        f.write(out2)
+    crf_data(file_train_set, fpath_short)
 
 
 semtypes = set()
@@ -328,7 +262,7 @@ def event_relation(drg_tuples, event_id):
     :param event_id: id of the event in a DRG tuple, e.g. k3:p1:e5
     :return:
     """
-    current_triple = ['REL', 'INT', 'EXT']  # contain conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
+    current_triple = ['REL', 'INT', 'EXT']  # conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
     them_roles = []
     them_roles_smart = []  # role:event_arg, e.g. agent-1:e9
     temporalities = []
@@ -345,7 +279,8 @@ def event_relation(drg_tuples, event_id):
     for dtuple in drg_tuples:
         edges.add(dtuple[1])
         # Exclude referent and condition tuples ("k6 referent k6:e1") and argument tuples of type "instance"
-        if dtuple[2] == event_id and dtuple[0].startswith('c') and dtuple[1] != 'instance':  # tuple should start with "c" and the edge is not of type "instance"
+        # tuple should start with "c" and the edge is not of type "instance"
+        if dtuple[2] == event_id and dtuple[0].startswith('c') and dtuple[1] != 'instance':
             sem_id = dtuple[0]
             argument = dtuple[1]
             # check if the relation is inverted, e.g. agent:-1
@@ -438,7 +373,7 @@ def event_relation(drg_tuples, event_id):
         # find referents and functions with a surface form: k32 function k32:e13 3 [ not ]
         # discourse_unit = ':'.join(event_id.split(':')[:-1])  # get the id of the discourse unit, e.g. k32
         # if dtuple[0] == discourse_unit and dtuple[2] == event_id and (dtuple[1] == 'function' or dtuple[1] == 'referent') and dtuple[5] != ']':
-         #   connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
+        #  connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
         current_triple = ['REL', 'INT', 'EXT']
     return them_roles_smart, them_roles, temporalities, relations, attributes,\
            instances, surfaces, propositions, connectives, connectives2
@@ -564,9 +499,9 @@ def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_de
     root = tree.getroot()
     offset = ''
     for pred in root.iter('pred'):
-        if pred.attrib['arg'] == event_arg and pred.attrib['symbol'] == predicate:
         # <pred arg="e2" symbol="land" type="v" sense="1"><indexlist><index pos="10">i1010</index></indexlist></pred>
         # <pred arg="e11" symbol="event" type="v" sense="0"><indexlist></indexlist></pred>
+        if pred.attrib['arg'] == event_arg and pred.attrib['symbol'] == predicate:
             if len(pred[0]) == 1:
                 offset = pred[0][0].text
             elif len(pred[0]) == 0:
@@ -574,7 +509,8 @@ def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_de
             else:
                 print("no offset found! for {} {} {}".format(curr_directory, event_arg, predicate))
     if not offset:
-    # try to find offsets in unmatched DRSs by searching for the event with the id incremented by 1, 2, 3 or substracted by 1, 2, 3
+        # try to find offsets in unmatched DRSs by searching for the event
+        # with the id incremented by 1, 2, 3 or substracted by 1, 2, 3
         guess = 'yes'
         if recursion_depth == 0:
             new_event_arg = 'e' + str(int(event_arg[1:]) + 1)
@@ -659,6 +595,76 @@ def normalise_ccg_cat(ccg_category):
     if ccg_category == 'N/N':
         cat_norm = ccg_category
     return cat_norm
+
+
+def crf_data(file_train_set, fpath_short):
+    with open('training_data.txt', 'a') as f:  # i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+        placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
+                            'theme-1', 'recipient', 'recipient-1', 'topic']
+        placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label']
+        replacements = sorted(list(string.ascii_uppercase), reverse=True)  # the english alphabet
+        out2 = ''
+        # group events by sentences
+        events = sorted(file_train_set.keys())
+        # list of empty dicts; take the last event to get the number of sentences
+        sents = [{} for _ in range(int(events[-1][1]))]
+        # create dicts of events for each sentence: [{i100:[[roles], label], i109:[[roles], label], ...}, {i203:...}, {}, ...]
+        for event in events:
+            sent_number = int(event[1])  # i3010
+            sents[sent_number - 1][event] = file_train_set[event]
+        # for each sentence, extract features and set them to 1 or to X, Y, etc if roles have the argument in common
+        for senten in sents:
+            out2 += '#' + '--->'.join(sorted(senten.keys())) + ' from ' + fpath_short + '\n'
+            sent_args = []  # contains lists of args for each event
+            # generate a placeholder for each event in a sentence
+            sent_placeholder = [placeholder] * len(senten)
+            for event in sorted(senten):
+                features, label = senten[event]
+                arguments = [feat.split(':')[1] for feat in features]
+                sent_args.append(arguments)
+            # for each pair of events, check if they have elements in common
+            common_elements = []
+            for ev1 in sent_args:
+                for ev2 in sent_args:
+                    if ev1 != ev2:
+                        common_elements += [item for item in set(ev1).intersection(ev2)]
+            common_elements_unique = list(set(common_elements))
+            # sort common args as a list of thematic roles in the placeholder_dict ??
+
+            # replace common args with Z, Y, X, etc in a placeholder
+            if common_elements_unique:
+                j = 0  # iterate over replacements: Z, Y, X, etc
+                for element in common_elements_unique:
+                    ev_counter = 0
+                    # find the role of the common element and replace it with X
+                    # do it for each event in a sentence
+                    # i100 : [[agent:x1, patient:x5], label]
+                    for event in sorted(senten):
+                        features, label = senten[event]
+                        for feat in features:
+                            role, argument = feat.split(':')
+                            if element == argument:
+                                role_index = placeholder_dict.index(role)
+                                sent_placeholder[ev_counter][role_index] = replacements[j]
+                                j += 1
+                    ev_counter += 1
+            # replace all other args of events with 1 except for Z, Y, X, etc
+            for event in sorted(senten):
+                ev_counter = 0
+                features, label = senten[event]
+                for feature in features:
+                    role, argument = feature.split(':')
+                    role_index = placeholder_dict.index(role)
+                    if sent_placeholder[ev_counter][role_index] not in replacements:
+                        sent_placeholder[ev_counter][role_index] = '1'
+                # set label -- the last element in the sequence
+                sent_placeholder[ev_counter][9] = label
+                ev_counter += 1
+            # write to output the sequence of events of a sentence
+            for seq in sent_placeholder:
+                out2 += '\t'.join(seq) + '\n'
+            out2 += '\n'
+        f.write(out2)
 
 
 read_corpus(GMB_path)
