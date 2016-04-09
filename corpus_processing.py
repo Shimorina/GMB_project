@@ -6,10 +6,10 @@ import xml.etree.ElementTree as ETree
 from collections import defaultdict
 
 
-GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
+# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
 # GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_t/'
 # GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
-# GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
+GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent',
          'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material',
          'patient', 'path', 'pivot', 'product', 'recipient', 'result', 'source', 'stimulus', 'time', 'topic', 'theme',
@@ -617,7 +617,7 @@ def crf_data(file_train_set, fpath_short):
             out2 += '#' + '--->'.join(sorted(senten.keys())) + ' from ' + fpath_short + '\n'
             sent_args = []  # contains lists of args for each event
             # generate a placeholder for each event in a sentence
-            sent_placeholder = [placeholder] * len(senten)
+            sent_placeholder = [['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label'] for i in range(len(senten))]
             for event in sorted(senten):
                 features, label = senten[event]
                 arguments = [feat.split(':')[1] for feat in features]
@@ -635,36 +635,40 @@ def crf_data(file_train_set, fpath_short):
             if common_elements_unique:
                 j = 0  # iterate over replacements: Z, Y, X, etc
                 for element in common_elements_unique:
-                    ev_counter = 0
                     # find the role of the common element and replace it with X
                     # do it for each event in a sentence
                     # i100 : [[agent:x1, patient:x5], label]
+                    ev_counter = 0
                     for event in sorted(senten):
                         features, label = senten[event]
                         for feat in features:
                             role, argument = feat.split(':')
                             if element == argument:
                                 role_index = placeholder_dict.index(role)
-                                sent_placeholder[ev_counter][role_index] = replacements[j]
-                                j += 1
-                    ev_counter += 1
+                                sent_placeholder[ev_counter][role_index] = replacements[j]      
+                        ev_counter += 1
+                    j += 1
             # replace all other args of events with 1 except for Z, Y, X, etc
+            ev_counter = 0
             for event in sorted(senten):
-                ev_counter = 0
                 features, label = senten[event]
+                #print(sent_placeholder)
                 for feature in features:
                     role, argument = feature.split(':')
                     role_index = placeholder_dict.index(role)
                     if sent_placeholder[ev_counter][role_index] not in replacements:
                         sent_placeholder[ev_counter][role_index] = '1'
                 # set label -- the last element in the sequence
+                #print(sent_placeholder[ev_counter])
                 sent_placeholder[ev_counter][9] = label
                 ev_counter += 1
+                #print(sent_placeholder)
             # write to output the sequence of events of a sentence
             for seq in sent_placeholder:
                 out2 += '\t'.join(seq) + '\n'
             out2 += '\n'
         f.write(out2)
+        #print(sent_placeholder)
 
 
 read_corpus(GMB_path)
