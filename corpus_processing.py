@@ -1,15 +1,15 @@
 import os
 import csv
 import string
-import itertools
+from natsort import natsorted
 import xml.etree.ElementTree as ETree
 from collections import defaultdict
 
 
-# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
+GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
 # GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_t/'
 # GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
-GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
+# GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent',
          'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material',
          'patient', 'path', 'pivot', 'product', 'recipient', 'result', 'source', 'stimulus', 'time', 'topic', 'theme',
@@ -47,7 +47,7 @@ def read_corpus(gmb_path):
         csvwriter.writerow(['Path', 'Token', 'Offset', 'CCG category', 'Sentence', 'Guess Offset'])
     with open('training_data_pairs_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
-    with open('training_data.txt', 'w+') as f:
+    with open('training_data_sequences_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
     for partition in os.listdir(gmb_path):
         partition_path = gmb_path + '/' + partition  # get path of each partition
@@ -177,19 +177,19 @@ def drg_mining(file_path):
             file_train_set[offset] = [them_roles_smart, ccg_cat_norm]
 
     # write training data to file
-    '''with open('training_data_pairs_all.txt', 'a') as f:
+    with open('training_data_pairs_all.txt', 'a') as f:
         placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme', 'theme-1', 'recipient', 'recipient-1', 'topic']
         placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-']
         replacements = ['X', 'Y', 'Z', 'W', 'U']
         out = ''
-        events = sorted(file_train_set.keys())
+        events = natsorted(file_train_set.keys())
         # for each pair of events, we will extract features and set them to 1 or to X
         # if roles of two events have the argument in common
         for i in range(len(events) - 1):
             event = events[i]
             next_event = events[i + 1]
-            # events must be in one sentence! (the second letter of offset is equal to the sent number)
-            if event[1] != next_event[1]:
+            # events must be in one sentence! (i12003 -- 12 is equal to the sent number)
+            if event[1:-3] != next_event[1:-3]:
                 continue
             out += '#' + event + ' ---> ' + next_event + ' from ' + fpath_short + '\n'
             features, label = file_train_set[event]
@@ -245,7 +245,7 @@ def drg_mining(file_path):
             # write to output the second event
             out += '\t'.join(placeholder_with_x_second) + '\t' + label2 + '\n\n'
 
-        f.write(out)'''
+        f.write(out)
 
     # write training data for CRFs to file
     crf_data(file_train_set, fpath_short)
@@ -598,27 +598,27 @@ def normalise_ccg_cat(ccg_category):
 
 
 def crf_data(file_train_set, fpath_short):
-    with open('training_data.txt', 'a') as f:  # i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+    with open('training_data_sequences_all.txt', 'a') as f:  # i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
         placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
                             'theme-1', 'recipient', 'recipient-1', 'topic']
         placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label']
         replacements = sorted(list(string.ascii_uppercase), reverse=True)  # the english alphabet
         out2 = ''
         # group events by sentences
-        events = sorted(file_train_set.keys())
+        events = natsorted(file_train_set.keys())
         # list of empty dicts; take the last event to get the number of sentences
-        sents = [{} for _ in range(int(events[-1][1]))]
+        sents = [{} for _ in range(int(events[-1][1:-3]))]
         # create dicts of events for each sentence: [{i100:[[roles], label], i109:[[roles], label], ...}, {i203:...}, {}, ...]
         for event in events:
-            sent_number = int(event[1])  # i3010
+            sent_number = int(event[1:-3])  # i13010, 13 stands for the sent number
             sents[sent_number - 1][event] = file_train_set[event]
         # for each sentence, extract features and set them to 1 or to X, Y, etc if roles have the argument in common
         for senten in sents:
-            out2 += '#' + '--->'.join(sorted(senten.keys())) + ' from ' + fpath_short + '\n'
+            out2 += '#' + '--->'.join(natsorted(senten.keys())) + ' from ' + fpath_short + '\n'
             sent_args = []  # contains lists of args for each event
             # generate a placeholder for each event in a sentence
             sent_placeholder = [['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label'] for i in range(len(senten))]
-            for event in sorted(senten):
+            for event in natsorted(senten):
                 features, label = senten[event]
                 arguments = [feat.split(':')[1] for feat in features]
                 sent_args.append(arguments)
@@ -639,7 +639,7 @@ def crf_data(file_train_set, fpath_short):
                     # do it for each event in a sentence
                     # i100 : [[agent:x1, patient:x5], label]
                     ev_counter = 0
-                    for event in sorted(senten):
+                    for event in natsorted(senten):
                         features, label = senten[event]
                         for feat in features:
                             role, argument = feat.split(':')
@@ -650,7 +650,7 @@ def crf_data(file_train_set, fpath_short):
                     j += 1
             # replace all other args of events with 1 except for Z, Y, X, etc
             ev_counter = 0
-            for event in sorted(senten):
+            for event in natsorted(senten):
                 features, label = senten[event]
                 #print(sent_placeholder)
                 for feature in features:
