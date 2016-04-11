@@ -118,7 +118,8 @@ def build_data_crf_sequences():
 
 
 def calculate_precision(file_dir):
-    path = '/home/anastasia/Documents/CRF_results/template1/'
+    # path = '/home/anastasia/Documents/CRF_results/template1/'
+    path = 'C:/Users/Anastassie/Dropbox/Loria/GMB/CRF_results/template1/'
     precision_all = []
     out = ''
     prec_recall = {}  # label: [tp, fp, fn]
@@ -138,11 +139,15 @@ def calculate_precision(file_dir):
                         error_name = initial + ' --> ' + predicted
                         dissimilar_dict[error_name] += 1
                     # add to the dict of true positives, false positives and false negatives
-                    '''if initial == predicted:  # true positives
-                        prec_recall.setdefault(initial, []).update()
+                    if initial not in prec_recall:
+                        prec_recall[initial] = [0, 0, 0]
+                    if predicted not in prec_recall:
+                        prec_recall[predicted] = [0, 0, 0]
+                    if initial == predicted:  # true positives
+                        prec_recall[initial][0] += 1
                     elif initial != predicted:
-                        prec_recall.setdefault(initial, []).update()  # false positives
-                        prec_recall.setdefault(predicted, []).update()  # false negatives'''
+                        prec_recall[initial][1] += 1  # false positives
+                        prec_recall[predicted][2] += 1  # false negatives
         fold_precision = 100 - (dissimilar_count / (all_occur/100))
         print('Accuracy: {}'.format(fold_precision))
         precision_all.append(fold_precision)
@@ -150,10 +155,24 @@ def calculate_precision(file_dir):
         for k in sorted(dissimilar_dict, key=dissimilar_dict.get, reverse=True):
             percent = round(dissimilar_dict[k] / (dissimilar_count / 100), 4)
             out += '{}\t{} ({} %) \n'.format(k, dissimilar_dict[k], percent)
-        out += '\n'
+        out += '\n\n'
+        for k in sorted(prec_recall, key=prec_recall.get, reverse=True):
+            tp = prec_recall[k][0]
+            fp = prec_recall[k][1]
+            fn = prec_recall[k][2]
+            precision = tp / (tp + fp)
+            if tp == 0 and fn == 0:
+                recall = 0
+                #print(k)
+            else:
+                recall = tp / (tp + fn)
+            out += '{} precision: {} recall: {} \n'.format(k, precision, recall)
+        out += '\n\n'
+        
     print('Averaged accuracy for five folds: {}'.format(sum(precision_all) / len(precision_all)))
     with open(path + 'crf_errors_' + file_dir + '.txt', 'w+') as f:
         f.write(out)
+    print(prec_recall)
 
 
 seq_dir = 'out_seq_fold'
