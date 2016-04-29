@@ -9,7 +9,7 @@ from collections import defaultdict
 # training data: 80%, test data: 20%.
 # create 5 folders: fold1, fold2, fold3, etc
 
-path = '/home/anastasia/Documents/GMB_crfs/syntax_refined/CRF_tests/'
+path = '/home/anastasia/Documents/GMB_crfs/syntax_refined_2/CRF_tests/'
 
 
 def build_data_crf():
@@ -76,7 +76,7 @@ def build_data_crf_sequences():
     z_count = False
     w_count = False
     # create a list containing all the pairs
-    with open('training_data_sequences_all_refined.txt', 'r') as f:
+    with open('training_data_sequences_all.txt', 'r') as f:
         next(f)  # skip first line with a title
         corpus_sequences = []  # every element is a sequence
         seq = ''
@@ -153,7 +153,7 @@ def build_data_crf_sequences():
 
 
 def calculate_precision(file_dir):
-    res_path = '/home/anastasia/Documents/GMB_crfs/syntax_refined/CRF_results/template3/'
+    res_path = '/home/anastasia/Documents/GMB_crfs/syntax_refined_2/CRF_results/template3/'
     # res_path = 'C:/Users/Anastassie/Dropbox/Loria/GMB/CRF_results/template3/'
     accuracy = []
     out = ''
@@ -219,7 +219,7 @@ def calculate_precision(file_dir):
 
 seq_dir = 'out_seq_fold'
 pair_dir = 'out_pair_fold'
-# calculate_precision(seq_dir)
-# calculate_precision(pair_dir)
-build_data_crf()
+calculate_precision(seq_dir)
+calculate_precision(pair_dir)
+# build_data_crf()
 # build_data_crf_sequences()

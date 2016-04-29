@@ -38,14 +38,14 @@ def read_corpus(gmb_path):
     with open('events_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles',
-                            'Temporalities', 'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
+                            'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
                             'Attributes ("arg" edges) [surface form if any]', 'Entities',
                             'Propositions', 'Surfaces', 'Function words', 'Referents',
-                            'Sentence', 'Guess Offset'])
+                            'Sentence', 'Guess Offset', 'Pronominalisation', 'Temporalities'])
     with open('ccg_categories_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Offset', 'CCG cat',
-                            'Normalised cat', 'Refined cat', 'Training cat', 'Sentence', 'Guess Offset'])
+        csvwriter.writerow(['Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
+                            'Training cat', 'Agent-1', 'Patient-1', 'Sentence', 'Guess Offset'])
     with open('training_data_pairs_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
     with open('training_data_sequences_all.txt', 'w+') as f:
@@ -150,7 +150,7 @@ def drg_mining(file_path):
 
         # Get event relations
         them_roles_smart, them_roles, temporalities, semantics, semantics_events, attributes,\
-        instances, surfaces, propositions, connectives, connectives2 = event_relation(drg_tuples, event_id)
+        instances, surfaces, propositions, connectives, connectives2, pronoms = event_relation(drg_tuples, event_id)
         # Get offset of the event
         offset, guess = get_sentences(file_path, pure_event_id, predicate)  # i16014, no
         # Get sentence with the event in question
@@ -162,13 +162,13 @@ def drg_mining(file_path):
         fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
         with open('events_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(temporalities), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess])
+            csvwriter.writerow([fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
 
         # Get the ccg category for the event
-        ccg_category, ccg_cat_norm, refined_cat, train_cat = profiling_ccg_category(token, offset, ccg_categories_file, lemmas_file, tags_file, sent)
+        ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret = profiling_ccg_category(token, offset, ccg_categories_file, lemmas_file, tags_file, sent, them_roles_smart, pronoms)
         with open('ccg_categories_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, ' '.join(target_sent), guess])
+            csvwriter.writerow([fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
         # calculate stats of thematic roles and ccg categories
         roles_dict, ccg_cats, abr_roles = calculate_stats(them_roles, roles_dict, ccg_category, ccg_cats)
         # abridge semantic roles
@@ -218,6 +218,7 @@ def event_relation(drg_tuples, event_id):
     propositions = []
     connectives = []
     connectives2 = []
+    pronoms = []
     global semtypes
     global roles
     # c54:patient:1 int k3:p1:e5 4 [ ]
@@ -255,6 +256,7 @@ def event_relation(drg_tuples, event_id):
                     if argument == 'int' and dtuple[1] == 'ext':
                         current_triple[2] = dtuple[2].split(':')[-1]  # x16
                         inst_id = dtuple[2]
+                        th_role = current_triple[0]
                         triple = current_triple[0] + '(' + current_triple[1] + ', ' + current_triple[2] + ')'
                         if current_triple[0] in roles:
                             them_roles.append(triple)
@@ -279,7 +281,13 @@ def event_relation(drg_tuples, event_id):
                             if dtuple[2] == inst_id:
                                 inst_argument = inst_id.split(':')[-1]  # x16
                                 if dtuple[1] == 'instance':  # c49:people:1 instance k3:p1:x16 2 [ people ]
-                                    instances.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')  # get lemma "people"
+                                    arg_lemma = dtuple[0].split(':')[1]  # get lemma "people"
+                                    instance_with_argument = arg_lemma + '(' + inst_argument + ')'
+                                    # avoid two identical instances in one DRS
+                                    if instance_with_argument not in instances:
+                                        instances.append(instance_with_argument)
+                                        pronom = pronominalisation_check(arg_lemma)
+                                        pronoms.append(th_role + '|||' + pronom)
                                 elif dtuple[1] == 'arg':    # c19:nearly:1  arg k1:x7   2   [   nearly ]
                                     attributes.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
                                 elif dtuple[1] == 'surface':  # k8  surface k8:e17  2   [   and   ]
@@ -291,6 +299,7 @@ def event_relation(drg_tuples, event_id):
                     elif argument == 'ext' and dtuple[1] == 'int':
                         current_triple[1] = dtuple[2].split(':')[-1]  # x16
                         inst_id = dtuple[2]
+                        th_role = current_triple[0]
                         triple = current_triple[0] + '(' + current_triple[1] + ', ' + current_triple[2] + ')'
                         if current_triple[0] in roles:
                             them_roles.append(triple)
@@ -322,8 +331,17 @@ def event_relation(drg_tuples, event_id):
                                         for dtuple in drg_tuples:
                                             if dtuple[2] == inst_id_left and dtuple[1] == 'instance':
                                                 inst_argument = inst_id_left.split(':')[-1]
-                                                instances.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
-                                                instances.append(inst_id + '=' + inst_id_left)
+                                                arg_lemma = dtuple[0].split(':')[1]  # get lemma "people"
+                                                instance_with_argument = arg_lemma + '(' + inst_argument + ')'
+                                                # avoid two identical instances in one DRS
+                                                if instance_with_argument not in instances:
+                                                    instances.append(instance_with_argument)
+                                                    pronom = pronominalisation_check(arg_lemma)
+                                                    pronoms.append(th_role + '|||' + pronom)
+                                                equal_inst = inst_id + '=' + inst_id_left
+                                                if equal_inst not in instances:
+                                                    instances.append(equal_inst)
+
         # find surfaces k4 surface k4:e10 4 [ because ]
         if dtuple[2] == event_id and dtuple[1] == 'surface':
             surfaces.append(dtuple[5])
@@ -333,7 +351,7 @@ def event_relation(drg_tuples, event_id):
         #  connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
         current_triple = ['REL', 'INT', 'EXT']
     return them_roles_smart, them_roles, temporalities, relations, relations_events, attributes,\
-           instances, surfaces, propositions, connectives, connectives2
+           instances, surfaces, propositions, connectives, connectives2, pronoms
 
 # todo function to generate readable triples
 
@@ -522,6 +540,14 @@ def calculate_stats(them_roles, roles_dict, ccg_category, ccg_cats):
     return roles_dict, ccg_cats, abr_roles_tuple
 
 
+def pronominalisation_check(lemma):
+    pronouns = ['male', 'female', 'thing']   # he, she, it
+    if lemma in pronouns:
+        return lemma
+    else:
+        return 'False'
+
+
 def ccg_categories(file_path):
     """
     Read the file en.tags and extract CCG categories
@@ -541,45 +567,59 @@ def ccg_categories(file_path):
     return ccg_cats
 
 
-def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreebank_tags, sentences_file):
+def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, ptb_tags, sentences_file, them_roles_args, pronouns):
     """ Do the profiling of existing CCG categories.
     :param token: the surface form of the event; e.g. given, mounts, made
     :param offset: the event offset; e.g. i15002
     :param ccg_categories_file: list of sentences where each of them is a list of ccg cats for all tokens
     :param lemmas: list of sentences in a file; each sentence is a list of lemmas
     :param sentences_file: list of sentences in a file; each sentence is a list of tokens
+    :param them_roles_args: list of thematic roles for the event, e.g. [agent-1:x4, patient:x7]
     :return: ccg category of a current token and suggested ccg category after the profiling
     """
     # don't consider events...
     if token == 'EVENT':
-        return 'NoOffset', 'Not available', 'Not available', 'Not available'
+        return 'NoOffset', 'Not available', 'Not available', 'Not available', 'NA', 'NA'
     # if token == 'EllipticalEvent':
+    refined_cat_wh = False  # cases of "John who eats an apple"
+    wh_subj_flag = False
+    wh_obj_flag = False
+    pro_subj_flag = False
+    pro_obj_flag = False
+    pro_subj_recip_flag = False
+    pro_obj_recip_flag = False
     sent_num = int(offset[1:])//1000  # offset = i14007
     token_num = int(offset[-3:])
+    tk_0position = token_num - 1
+    tk_1position = token_num - 2
+    tk_2position = token_num - 3
+    tk_3position = token_num - 4
+    tk_4position = token_num - 5
     ccg_cats_sent = ccg_categories_file[sent_num - 1]
     # CCG tag of the current token
-    ccg_cat = ccg_cats_sent[token_num - 1]
+    ccg_cat = ccg_cats_sent[tk_0position]
     ccg_norm = normalise_ccg_cat(ccg_cat)  # we don't need what is on the right part
     sentence = lemmas[sent_num - 1]  # get list of lemmas for the sentence considered
-    tags = penntreebank_tags[sent_num - 1]  # list of tags for the sentence considered
-    tokens = sentences_file[sent_num - 1]  # list of tags for the sentence considered
-    lemma_1 = sentence[token_num - 2]
-    lemma_1_cat = ccg_cats_sent[token_num - 2]
-    lemma_1_tag = tags[token_num - 2]
-    token_1 = tokens[token_num - 2]
+    tags = ptb_tags[sent_num - 1]  # list of tags for the sentence considered
+    tokens = sentences_file[sent_num - 1]  # list of tokens for the sentence considered
+    lemma_1 = sentence[tk_1position]
+    lemma_1_cat = ccg_cats_sent[tk_1position]
+    lemma_1_tag = tags[tk_1position]
+    token_1 = tokens[tk_1position]
 
-    lemma_2_tag = tags[token_num - 3]
-    lemma_2 = sentence[token_num - 3]
-    lemma_2_cat = ccg_cats_sent[token_num - 3]
-    token_2 = tokens[token_num - 3]
+    lemma_2_tag = tags[tk_2position]
+    lemma_2 = sentence[tk_2position]
+    lemma_2_cat = ccg_cats_sent[tk_2position]
+    token_2 = tokens[tk_2position]
 
-    lemma_3 = sentence[token_num - 4]
-    lemma_3_cat = ccg_cats_sent[token_num - 4]
-    lemma_3_tag = tags[token_num - 4]
-    token_3 = tokens[token_num - 4]
+    lemma_3 = sentence[tk_3position]
+    lemma_3_cat = ccg_cats_sent[tk_3position]
+    lemma_3_tag = tags[tk_3position]
+    token_3 = tokens[tk_3position]
     # profiling for five categories: S[dcl]\NP, S[b]\NP, S[pss]\NP, S[ng]\NP, S[pt]\NP
     if ccg_norm == 'S[dcl]\\NP':
         refined_cat = ccg_norm
+        refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_0position)
     elif ccg_norm == 'S[b]\\NP':
         prev_token_cat_norm = normalise_ccg_cat(lemma_1_cat)
         # search for modals: could speak, will return
@@ -589,6 +629,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
                 refined_cat = 'S[dcl-modal]\\NP'
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-bare]'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_1position)
         # negation or adverbs: did not elaborate, does not play, would likely spread
         elif lemma_1_tag == 'RB' and '/(S[b]\\NP)' in lemma_2_cat:
             prev_token_cat_norm = normalise_ccg_cat(lemma_2_cat)
@@ -598,28 +639,37 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
                 refined_cat = 'S[bare-to-Inf-2token]\\NP'
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-bare-2]'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
         # begin to drive, but exclude "has to set"
         elif prev_token_cat_norm == 'S[to]\\NP' and lemma_2 != 'have':
             refined_cat = 'S[bare-to-Inf]\\NP'
         # have to + Inf
         elif prev_token_cat_norm == 'S[to]\\NP' and lemma_2 == 'have':
             refined_cat = 'S[dcl-have-to-Inf]\\NP'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
         # coordination: would disarm and return, will probably not move
         elif lemma_3_tag == 'MD' and '/(S[b]\\NP)' in lemma_3_cat and (lemma_1_cat == 'conj' or lemma_2_tag == 'RB'):
             refined_cat = 'S[dcl-modal-coord]\\NP'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_3position)
         else:
             refined_cat = ccg_norm + '\t[not changed]'
 
     elif ccg_norm == 'S[pss]\\NP':
         # search for passive: 'to be' in previous or previous but one token
         if lemma_1 == 'be' and '/(S[pss]\\NP)' in lemma_1_cat:
-            refined_cat = 'S[passive]\\NP'
+            refined_cat = 'S[pss-dcl]\\NP'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_1position)
+            # case of "which had been trained"
+            if not refined_cat_wh:
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
         # is not hurt, were later rescued, but exclude "were left stranded, have been reported killed"
         elif lemma_2 == 'be' and '/(S[pss]\\NP)' in lemma_2_cat and lemma_1_tag == 'RB':
-            refined_cat = 'S[passive-2token]\\NP'
+            refined_cat = 'S[pss-dcl-2token]\\NP'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
         # was spotted and prevented; was also brutally attacked; were no longer bound, but exclude "be held as scheduled"
         elif lemma_3 == 'be' and '/(S[pss]\\NP)' in lemma_3_cat and (lemma_1_cat == 'conj' or lemma_2_tag == 'RB'):
-            refined_cat = 'S[passive-3token]\\NP'
+            refined_cat = 'S[pss-dcl-3token]\\NP'
+            refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_3position)
         else:
             refined_cat = ccg_norm + '\t[not changed]'
 
@@ -630,9 +680,11 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_1_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-continuous]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_1position)
             # have been fighting, has since been struggling
             elif token_1 == 'been':
                 refined_cat = 'S[dcl-perfect_continuous-1token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
             #  could be developing
             #  todo go to the case of pt or b
             else:
@@ -642,9 +694,11 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_2_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-continuous-2token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
             # the perfect continuous tense: had [not] been narrowly observing
             elif token_2 == 'been':
                 refined_cat = 'S[dcl-perfect_continuous-2token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-2]'
         # coordination: are regressing or lagging
@@ -652,9 +706,11 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_3_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-continuous-3token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_3position)
             # the perfect continuous tense: had been holding and interrogating
             elif token_3 == 'been':
                 refined_cat = 'S[dcl-perfect_continuous-3token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_4position)
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-3]'
         #negation with adv:  are not just paying, is not completely withdrawing
@@ -662,6 +718,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_3_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-continuous-3token--neg]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_3position)
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-3]'
         else:
@@ -673,6 +730,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_1_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-perfect]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_1position)
             # is known to have died, should [not] have lost,
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified]'
@@ -681,6 +739,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_2_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-perfect-2token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-2]'  # having just surfeited, appears to have largely boycotted, may have accidentally strayed
         # has almost completely eliminated; have burned and dragged
@@ -688,6 +747,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
             prev_token_cat_norm = normalise_ccg_cat(lemma_3_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
                 refined_cat = 'S[dcl-perfect-3token]\\NP'
+                refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_3position)
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-3]'
         else:
@@ -702,7 +762,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
                       'S[dcl-continuous-2token]\\NP', 'S[dcl-perfect_continuous-1token]\\NP', 'S[dcl-continuous]\\NP',
                       'S[dcl-have-to-Inf]\\NP', 'S[dcl-neg/modal]\\NP', 'S[dcl-modal]\\NP', 'S[dcl-modal-coord]\\NP',]
     train_cats_bare = ['S[bare-to-Inf]\\NP', 'S[bare-to-Inf-2token]\\NP']
-    train_cats_pss = ['S[passive-3token]\\NP', 'S[passive-2token]\\NP', 'S[passive]\\NP']
+    train_cats_pss = ['S[pss-dcl-3token]\\NP', 'S[pss-dcl-2token]\\NP', 'S[pss-dcl]\\NP']
     # delete comments like [not changed], [modified]
     if '\t' in refined_cat:
         training_cat = refined_cat.split('\t')[0]
@@ -713,8 +773,70 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, penntreeb
     elif training_cat in train_cats_bare:
         training_cat = 'S[b]\\NP'
     elif training_cat in train_cats_pss:
-        training_cat = 'S[pss]\\NP'
-    return ccg_cat, ccg_norm, refined_cat, training_cat
+        training_cat = 'S[pss-dcl]\\NP'
+    # split declaratives into categories
+    # if whSubj found, set its flag to true
+    if refined_cat_wh:
+        if training_cat == 'S[dcl]\\NP' or training_cat == 'S[pss-dcl]\\NP':
+            wh_subj_flag = True
+        else:
+            print(training_cat)
+    # add columns with agent-1 and patient-1
+    wh_pretend = '---'
+    wh_obj_pretend = '---'
+    them_roles = []
+    them_roles += [role.split(':')[0] for role in them_roles_args]
+    for role in them_roles:
+        if role == 'agent-1':
+            if training_cat == 'S[dcl]\\NP':
+                wh_pretend = 'whSubjCandidate'
+            else:
+                wh_pretend = 'agent-1'
+        elif role == 'patient-1':
+            # events which have patient-1 are dcl-whObj, e.g. the cash he got from the bank
+            if training_cat == 'S[dcl]\\NP':
+                wh_obj_flag = True
+            else:
+                wh_obj_pretend = 'patient-1'
+    # generalise pronominalisation: replace M/F/thing with Pro
+    for num, element in enumerate(pronouns):
+        if element.endswith('male') or element.endswith('female') or element.endswith('thing'):
+            pronouns[num] = element.split('|||')[0] + '|||Pro'
+        else:
+            pronouns[num] = element
+    # modify CCG training category for declarative sentences if they are pronominalised
+    if 'agent|||Pro' in pronouns and 'agent|||False' not in pronouns:
+        if training_cat == 'S[dcl]\\NP':
+            pro_subj_flag = True
+        elif training_cat == 'S[pss-dcl]\\NP':
+            pro_obj_flag = True
+    if 'patient|||Pro' in pronouns and 'patient|||False' not in pronouns:
+        if training_cat == 'S[dcl]\\NP':
+            pro_obj_flag = True
+        elif training_cat == 'S[pss-dcl]\\NP':
+            pro_subj_flag = True
+    # e.g. he was obliged to keep shares
+    if training_cat == 'S[pss-dcl]\\NP' and 'theme' in them_roles and 'recipient' in them_roles and 'theme|||Pro' in pronouns:
+        pro_subj_recip_flag = True
+    # if there are agent and recipient as roles and no patient and recipient is pronominalised, then recipient is treated as ProObj
+    # he urged them not to increase tensions -- them is a recipient
+    if 'agent' in them_roles and 'recipient' in them_roles and 'patient' not in them_roles and 'recipient|||Pro' in pronouns:
+        if training_cat in 'S[dcl]\\NP':
+            pro_obj_recip_flag = True
+    # add flags to categories
+    if wh_subj_flag:
+        training_cat = training_cat.replace('dcl', 'dcl-whSubj')
+    if wh_obj_flag:
+        training_cat = training_cat.replace('dcl', 'dcl-whObj')
+    if pro_subj_flag:
+        training_cat = training_cat.replace('dcl', 'dcl-ProSubj')
+    if pro_obj_flag:
+        training_cat = training_cat.replace('dcl', 'dcl-ProObj')
+    if pro_subj_recip_flag:
+        training_cat = training_cat.replace('dcl', 'dcl-ProSubjRecip')
+    if pro_obj_recip_flag:
+        training_cat = training_cat.replace('dcl', 'dcl-ProObjRecip')
+    return ccg_cat, ccg_norm, refined_cat, training_cat, wh_pretend, wh_obj_pretend
 
 
 def normalise_ccg_cat(ccg_category):
@@ -727,6 +849,24 @@ def normalise_ccg_cat(ccg_category):
     if ccg_category == 'N/N':
         cat_norm = ccg_category
     return cat_norm
+
+
+def wh_check(ccg_tags, tags, curr_position):
+    ccg_tag1 = ccg_tags[curr_position - 1]
+    ccg_tag2 = ccg_tags[curr_position - 2]
+    ccg_tag3 = ccg_tags[curr_position - 3]
+    tag1 = tags[curr_position - 1]
+    tag2 = tags[curr_position - 2]
+    if ccg_tag1 == '(NP\\NP)/(S[dcl]\\NP)':
+        refined_cat_wh = True
+    # who once again are seeing; exclude "men who say they were kidnapped"
+    elif ccg_tag2 == '(NP\\NP)/(S[dcl]\\NP)' and tag1 == 'RB':
+        refined_cat_wh = True
+    elif ccg_tag3 == '(NP\\NP)/(S[dcl]\\NP)' and tag1 == 'RB' and tag2 == 'RB':
+        refined_cat_wh = True
+    else:
+        refined_cat_wh = False  # missed: policies which the group says include, attack that killed eight people and injured
+    return refined_cat_wh
 
 
 def crf_data_pairs(file_train_set, fpath_short):
