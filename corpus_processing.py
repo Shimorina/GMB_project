@@ -6,9 +6,9 @@ import xml.etree.ElementTree as ETree
 from collections import defaultdict
 
 
-GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
+# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
 # GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_t/'
-# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
+GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
 # GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent',
          'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material',
@@ -37,14 +37,28 @@ def read_corpus(gmb_path):
     global sems_synt
     with open('events_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles',
+        csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles',
                             'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
                             'Attributes ("arg" edges) [surface form if any]', 'Entities',
                             'Propositions', 'Surfaces', 'Function words', 'Referents',
                             'Sentence', 'Guess Offset', 'Pronominalisation', 'Temporalities'])
     with open('ccg_categories_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
+        csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
+                            'Training cat', 'Agent-1', 'Patient-1', 'Sentence', 'Guess Offset'])
+    # create five separate documents for each subcorpus
+    subcorpora = ['Voice_of_America', 'CIA_World_Factbook', 'fables', 'basicjokes', 'MASC_Full']
+    for i in range(0,5):
+        with open('./data_by_subcorpus/' + subcorpora[i] + '_events.csv', 'w+') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles',
+                            'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
+                            'Attributes ("arg" edges) [surface form if any]', 'Entities',
+                            'Propositions', 'Surfaces', 'Function words', 'Referents',
+                            'Sentence', 'Guess Offset', 'Pronominalisation', 'Temporalities'])
+        with open('./data_by_subcorpus/' + subcorpora[i] + '_ccg.csv', 'w+') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
                             'Training cat', 'Agent-1', 'Patient-1', 'Sentence', 'Guess Offset'])
     with open('training_data_pairs_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
@@ -83,6 +97,15 @@ def drg_mining(file_path):
     :param file_path: path to a file in the GMB corpus
     :return:
     """
+    # Read met file and extract the name of subcorpus
+    subcorpus_set = set()
+    subcorpus = 'UnavailableSubcorpus'
+    with open(file_path+'en.met', 'r') as f:
+        for line in f:
+            if line.startswith('subcorpus: '):
+                subcorpus = line.split('subcorpus: ')[1].strip()
+                break
+    subc_short = subcorpus.replace(' ', '_')
     # Read en.tags file and build a list of sentences
     sent = []
     sentence = []
@@ -158,17 +181,25 @@ def drg_mining(file_path):
             target_sent = sent[int(offset[1:-3]) - 1]
         else:
             target_sent = 'Unknown'
-
-        fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
-        with open('events_all.csv', 'a') as csvfile:
-            csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
-
         # Get the ccg category for the event
         ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret = profiling_ccg_category(token, offset, ccg_categories_file, lemmas_file, tags_file, sent, them_roles_smart, pronoms)
+        fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
+        # write all data to files
+        with open('events_all.csv', 'a') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
         with open('ccg_categories_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
+            csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
+        # write data to each subcorpus separately
+        with open('./data_by_subcorpus/' + subc_short + '_events.csv', 'a') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow([subcorpus])
+            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
+        with open('./data_by_subcorpus/' + subc_short + '_ccg.csv', 'a') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
+
         # calculate stats of thematic roles and ccg categories
         roles_dict, ccg_cats, abr_roles = calculate_stats(them_roles, roles_dict, ccg_category, ccg_cats)
         # abridge semantic roles
@@ -857,7 +888,7 @@ def wh_check(ccg_tags, tags, curr_position):
     ccg_tag3 = ccg_tags[curr_position - 3]
     tag1 = tags[curr_position - 1]
     tag2 = tags[curr_position - 2]
-    if ccg_tag1 == '(NP\\NP)/(S[dcl]\\NP)':
+    if ccg_tag1.endswith('/(S[dcl]\\NP)') and tag1 in ['WDT', 'WP']:
         refined_cat_wh = True
     # who once again are seeing; exclude "men who say they were kidnapped"
     elif ccg_tag2 == '(NP\\NP)/(S[dcl]\\NP)' and tag1 == 'RB':
