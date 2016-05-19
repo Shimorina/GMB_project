@@ -6,9 +6,9 @@ import xml.etree.ElementTree as ETree
 from collections import defaultdict
 
 
-# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
+GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
 # GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_t/'
-GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
+# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
 # GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent',
          'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material',
@@ -60,6 +60,11 @@ def read_corpus(gmb_path):
             csvwriter = csv.writer(csvfile)
             csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
                             'Training cat', 'Agent-1', 'Patient-1', 'Sentence', 'Guess Offset'])
+        with open('./data_by_subcorpus/' + subcorpora[i] + '_pairs.txt', 'w+') as f:
+            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
+        with open('./data_by_subcorpus/' + subcorpora[i] + '_sequences.txt', 'w+') as f:
+            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
+
     with open('training_data_pairs_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
     with open('training_data_sequences_all.txt', 'w+') as f:
@@ -220,10 +225,13 @@ def drg_mining(file_path):
         if offset != 'Not available' and train_cat != 'Not available':
             file_train_set[offset] = [them_roles_smart, train_cat]
 
-    # write training data to file
-    crf_data_pairs(file_train_set, fpath_short)
-    # write training data for CRFs to file
-    crf_data(file_train_set, fpath_short)
+    # write all training data for CRFs to file
+
+    crf_data_pairs(file_train_set, fpath_short, 'training_data_pairs_all.txt')
+    crf_data(file_train_set, fpath_short, 'training_data_sequences_all.txt')
+    # write training data for CRFs by subcorpus
+    crf_data_pairs(file_train_set, fpath_short, './data_by_subcorpus/' + subc_short + '_pairs.txt')
+    crf_data(file_train_set, fpath_short, './data_by_subcorpus/' + subc_short + '_sequences.txt')
 
 
 semtypes = set()
@@ -327,6 +335,13 @@ def event_relation(drg_tuples, event_id):
                                 if dtuple[1] == 'referent' and dtuple[5] != ']':  # k2 referent k2:x11 1 [ which ]
                                     connectives.append('referent "' + dtuple[5] + '" (' + inst_argument + ')')
 
+                                # check for coordination in arguments: c122:superset_of:1 int k6:x30 1 [ ]
+                                if dtuple[1] == 'int':
+                                    superset = dtuple[0].split(':')[-2]
+                                    if superset == 'superset_of':
+                                        coord_instances = find_equal_elements(drg_tuples, [], dtuple, flag='coordination')
+                                        instances += [item for item in coord_instances if item not in instances]
+
                     elif argument == 'ext' and dtuple[1] == 'int':
                         current_triple[1] = dtuple[2].split(':')[-1]  # x16
                         inst_id = dtuple[2]
@@ -360,18 +375,32 @@ def event_relation(drg_tuples, event_id):
                                     if dtuple[0] == eq_node:
                                         inst_id_left = dtuple[2]
                                         for dtuple in drg_tuples:
-                                            if dtuple[2] == inst_id_left and dtuple[1] == 'instance':
+                                            if dtuple[2] == inst_id_left and dtuple[1] in ['instance', 'arg']:
                                                 inst_argument = inst_id_left.split(':')[-1]
                                                 arg_lemma = dtuple[0].split(':')[1]  # get lemma "people"
                                                 instance_with_argument = arg_lemma + '(' + inst_argument + ')'
-                                                # avoid two identical instances in one DRS
-                                                if instance_with_argument not in instances:
-                                                    instances.append(instance_with_argument)
-                                                    pronom = pronominalisation_check(arg_lemma)
-                                                    pronoms.append(th_role + '|||' + pronom)
                                                 equal_inst = inst_id + '=' + inst_id_left
-                                                if equal_inst not in instances:
-                                                    instances.append(equal_inst)
+                                                if dtuple[1] == 'instance':
+                                                    # avoid two identical instances in one DRS
+                                                    if instance_with_argument not in instances:
+                                                        instances.append(instance_with_argument)
+                                                        pronom = pronominalisation_check(arg_lemma)
+                                                        pronoms.append(th_role + '|||' + pronom)
+                                                    if equal_inst not in instances:
+                                                        instances.append(equal_inst)
+                                                elif dtuple[1] == 'arg':    # c19:nearly:1  arg k1:x7   2   [   nearly ]
+                                                    attributes.append(instance_with_argument)
+                                                    if equal_inst not in instances:
+                                                        instances.append(equal_inst)
+                            # the same case as above where argument = int and dtuple[1] = ext
+                            elif dtuple[2] == inst_id:
+                                inst_argument = inst_id.split(':')[-1]  # x16
+                                if dtuple[1] == 'instance':  # c49:people:1 instance k3:p1:x16 2 [ people ]
+                                    arg_lemma = dtuple[0].split(':')[1]  # get lemma "people"
+                                    instance_with_argument = arg_lemma + '(' + inst_argument + ')'
+                                    # avoid two identical instances in one DRS
+                                    if instance_with_argument not in instances:
+                                        instances.append(instance_with_argument)
 
         # find surfaces k4 surface k4:e10 4 [ because ]
         if dtuple[2] == event_id and dtuple[1] == 'surface':
@@ -480,22 +509,35 @@ def get_temporalities(drg_tuples, temporalities, temp_type, ddtuple):
     return temporalities
 
 
-def find_equal_elements(drg_tuples, elements, ddtuple):
+def find_equal_elements(drg_tuples, elements, ddtuple, flag='equality'):
+    # search for equal elements:
     # c28:equality int k1:t2 0 [ ]
     # c28:equality ext k1:t1 0 [ ]
     # c26:now:1 arg k1:t1 0 [ ]
+    # search for coordinated elements:
+    # c126:superset_of:1 int k6:x30 3 [ ]
+    # c126:superset_of:1 ext k6:x33 0 [ ]
+    # c125:country:1 instance k6:x33 2 [ countries ]
     inst_id = ddtuple[2]
     eq_node = ddtuple[0]
     drg_tuples.remove(ddtuple)  # delete the element in order not to find it in the loop
     for dtuple in drg_tuples:
         if dtuple[0] == eq_node:
             inst_id_left = dtuple[2]
-            elements.append(inst_id + '=' + inst_id_left)  # add equal elements
-            for dtuple in drg_tuples:
-                if dtuple[2] == inst_id_left and (dtuple[1] == 'instance' or dtuple[1] == 'arg'):
-                    inst_argument = inst_id_left.split(':')[-1]
-                    elements.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
-            break
+            if flag == 'equality':
+                elements.append(inst_id + '=' + inst_id_left)  # add equal elements
+                for dtuple in drg_tuples:
+                    if dtuple[2] == inst_id_left and (dtuple[1] == 'instance' or dtuple[1] == 'arg'):
+                        inst_argument = inst_id_left.split(':')[-1]
+                        elements.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
+                break
+            elif flag == 'coordination':
+                elements.append(inst_id + '>>' + inst_id_left)  # add coordinated elements
+                for dtuple in drg_tuples:
+                    if dtuple[2] == inst_id_left and dtuple[1] == 'instance':
+                        inst_argument = inst_id_left.split(':')[-1]
+                        elements.append(dtuple[0].split(':')[1] + '(' + inst_argument + ')')
+                break
     return elements
 
 
@@ -891,17 +933,17 @@ def wh_check(ccg_tags, tags, curr_position):
     if ccg_tag1.endswith('/(S[dcl]\\NP)') and tag1 in ['WDT', 'WP']:
         refined_cat_wh = True
     # who once again are seeing; exclude "men who say they were kidnapped"
-    elif ccg_tag2 == '(NP\\NP)/(S[dcl]\\NP)' and tag1 == 'RB':
+    elif ccg_tag2.endswith('/(S[dcl]\\NP)') and tag1 == 'RB':
         refined_cat_wh = True
-    elif ccg_tag3 == '(NP\\NP)/(S[dcl]\\NP)' and tag1 == 'RB' and tag2 == 'RB':
+    elif ccg_tag3.endswith('(S[dcl]\\NP)') and tag1 == 'RB' and tag2 == 'RB':
         refined_cat_wh = True
     else:
         refined_cat_wh = False  # missed: policies which the group says include, attack that killed eight people and injured
     return refined_cat_wh
 
 
-def crf_data_pairs(file_train_set, fpath_short):
-    with open('training_data_pairs_all.txt', 'a') as f:
+def crf_data_pairs(file_train_set, fpath_short, path_to_file):
+    with open(path_to_file, 'a') as f:
         placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
                             'theme-1', 'recipient', 'recipient-1', 'topic']
         placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-']
@@ -972,8 +1014,8 @@ def crf_data_pairs(file_train_set, fpath_short):
         f.write(out)
 
 
-def crf_data(file_train_set, fpath_short):
-    with open('training_data_sequences_all.txt', 'a') as f:  # i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+def crf_data(file_train_set, fpath_short, path_to_file):
+    with open(path_to_file, 'a') as f:  # i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
         placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
                             'theme-1', 'recipient', 'recipient-1', 'topic']
         placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label']

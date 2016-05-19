@@ -9,14 +9,33 @@ from collections import defaultdict
 # training data: 80%, test data: 20%.
 # create 5 folders: fold1, fold2, fold3, etc
 
-path = '/home/anastasia/Documents/GMB_crfs/syntax_refined_2/CRF_tests/'
+def run_all_corpus():
+    path = '/home/anastasia/Documents/GMB_crfs/syntax_refined_2/CRF_tests/'
+    pairs_all = 'training_data_pairs_all.txt'
+    fold_size_pairs = 19507
+    build_data_crf(pairs_all, fold_size_pairs, path)
+    seqs_all = 'training_data_sequences_all.txt'
+    fold_size_seqs = 12384
+    build_data_crf_sequences(seqs_all, fold_size_seqs, path)
 
 
-def build_data_crf():
-    global path
+def run_subcorpora():
+    out_path = '/home/anastasia/Documents/GMB_crfs/subcorpora/'
+    subcorpora = ['basicjokes', 'CIA_World_Factbook', 'fables', 'MASC_Full', 'Voice_of_America']
+    fold_sizes_pairs = [131, 868, 473, 68, 17965]  # Total number of pairs: 656, 4342, 2369, 343, 89825
+    fold_sizes_seqs = [86, 701, 185, 50, 11361]   # Total number of sequences: 431, 3506, 925, 250, 56808
+    for num, subcorpus in enumerate(subcorpora):
+        train_path = out_path + subcorpus + '/CRF_tests/'
+        pairs_subcorpus = './data_by_subcorpus/' + subcorpus + '_pairs.txt'
+        seqs_subcorpus = './data_by_subcorpus/' + subcorpus + '_sequences.txt'
+        build_data_crf(pairs_subcorpus, fold_sizes_pairs[num], train_path)
+        build_data_crf_sequences(seqs_subcorpus, fold_sizes_seqs[num], train_path)
+
+
+def build_data_crf(path_to_file, fold_size, train_path):
     label_distr = defaultdict(int)
     # create a list containing all the pairs
-    with open('training_data_pairs_all.txt', 'r') as f:
+    with open(path_to_file, 'r') as f:
         next(f)  # skip first line with a title
         corpus_pairs = []  # every element is a pair
         pair = ''
@@ -46,11 +65,11 @@ def build_data_crf():
 
     # create ten folds with training and test data
     for fold in range(1, 6):
-        fold_dir = path + 'fold' + str(fold) + '/'
+        fold_dir = train_path + 'fold' + str(fold) + '/'
         if not os.path.exists(fold_dir):
             os.makedirs(fold_dir)
-        start_split = (fold-1) * 19507
-        end_split = fold * 19507
+        start_split = (fold-1) * fold_size
+        end_split = fold * fold_size
         with open(fold_dir + 'training_pair_fold' + str(fold) + '.txt', 'w+') as f_train:
             f_train.write(''.join(corpus_pairs[:start_split]))
             f_train.write(''.join(corpus_pairs[end_split:]))
@@ -65,8 +84,7 @@ def build_data_crf():
 #  split into 5 folds with 12 384 sequences each
 
 
-def build_data_crf_sequences():
-    global path
+def build_data_crf_sequences(path_to_file, fold_size, train_path):
     ev_counter = 0
     max_event_number = 0  # find the maximum number of events in sequences
     label_distr = defaultdict(int)
@@ -76,7 +94,7 @@ def build_data_crf_sequences():
     z_count = False
     w_count = False
     # create a list containing all the pairs
-    with open('training_data_sequences_all.txt', 'r') as f:
+    with open(path_to_file, 'r') as f:
         next(f)  # skip first line with a title
         corpus_sequences = []  # every element is a sequence
         seq = ''
@@ -129,7 +147,7 @@ def build_data_crf_sequences():
     for k in sorted(args_distr, key=args_distr.get, reverse=True):
         out += 'Argument {} was found in {} sentences\n'.format(k, args_distr[k])
         out += '\n'
-    with open(path + 'label_distr_refined.txt', 'w+') as f:
+    with open(train_path + 'label_distr_refined.txt', 'w+') as f:
         f.write(out)
 
     seed(1)
@@ -137,11 +155,11 @@ def build_data_crf_sequences():
 
     # create ten folds with training and test data
     for fold in range(1, 6):
-        fold_dir = path + 'fold' + str(fold) + '/'
+        fold_dir = train_path + 'fold' + str(fold) + '/'
         if not os.path.exists(fold_dir):
             os.makedirs(fold_dir)
-        start_split = (fold-1) * 12384
-        end_split = fold * 12384
+        start_split = (fold-1) * fold_size
+        end_split = fold * fold_size
         with open(fold_dir + 'training_seq_fold' + str(fold) + '.txt', 'w+') as f_train:
             f_train.write(''.join(corpus_sequences[:start_split]))
             f_train.write(''.join(corpus_sequences[end_split:]))
@@ -152,12 +170,24 @@ def build_data_crf_sequences():
         print('writing testing file from {} to {} (not included)'.format(start_split, end_split))
 
 
-def calculate_precision(file_dir):
-    res_path = '/home/anastasia/Documents/GMB_crfs/syntax_refined_2/CRF_results/template3/'
-    # res_path = 'C:/Users/Anastassie/Dropbox/Loria/GMB/CRF_results/template3/'
+def calc_precision_subcorpora():
+    sequences_file = 'out_seq_fold'
+    pair_file = 'out_pair_fold'
+    out_path = '/home/anastasia/Documents/GMB_crfs/subcorpora/'
+    subcorpora = ['basicjokes', 'CIA_World_Factbook', 'fables', 'MASC_Full', 'Voice_of_America']
+    for subcorpus in subcorpora:
+        for template in range(1, 4):
+            res_path = out_path + subcorpus + '/CRF_results/template' + str(template) + '/'
+            calculate_precision(sequences_file, res_path)
+            calculate_precision(pair_file, res_path)
+
+
+def calculate_precision(file_dir, res_path):
     accuracy = []
     out = ''
     prec_recall_folds = {}  # label: [Precision-fold1, Recall-fold1, P-fold2, R-fold2, etc]
+    print(res_path)
+    print(file_dir)
     for fold in range(1, 6):
         prec_recall = {}  # label: [tp, fp, fn] for each fold
         dissimilar_dict = defaultdict(int)
@@ -196,11 +226,13 @@ def calculate_precision(file_dir):
             tp = prec_recall[k][0]
             fp = prec_recall[k][1]
             fn = prec_recall[k][2]
-            precision = round(tp / (tp + fp), 4)
             if tp == 0 and fn == 0:
                 recall = 0
+            elif tp == 0 and fp == 0:
+                precision = 0
             else:
                 recall = round(tp / (tp + fn), 4)
+                precision = round(tp / (tp + fp), 4)
             out += '{} precision: {} recall: {} \n'.format(k, precision, recall)
             if k not in prec_recall_folds:
                 prec_recall_folds[k] = [precision, recall]
@@ -217,9 +249,12 @@ def calculate_precision(file_dir):
         f.write(out)
 
 
+# run_all_corpus()
+# run_subcorpora()
 seq_dir = 'out_seq_fold'
 pair_dir = 'out_pair_fold'
-calculate_precision(seq_dir)
-calculate_precision(pair_dir)
-# build_data_crf()
-# build_data_crf_sequences()
+res_path = '/home/anastasia/Documents/GMB_crfs/syntax_refined_2/CRF_results/template3/'
+# res_path = 'C:/Users/Anastassie/Dropbox/Loria/GMB/CRF_results/template3/'
+# calculate_precision(seq_dir, res_path)
+# calculate_precision(pair_dir, res_path)
+calc_precision_subcorpora()
