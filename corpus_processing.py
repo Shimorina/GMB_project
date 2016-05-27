@@ -20,6 +20,8 @@ roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-
 ccg_cats = defaultdict(int)
 roles_dict = {}
 sems_synt = {}
+event_relations_dict = {}  # path to the file: relations between events
+discourse_connectives = set()  # all discourse connectives
 pred_which_count = 0
 word_which_count = 0
 
@@ -35,17 +37,21 @@ def read_corpus(gmb_path):
     global roles_dict
     global ccg_cats
     global sems_synt
+    global event_relations_dict
     with open('events_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles',
                             'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
-                            'Attributes ("arg" edges) [surface form if any]', 'Entities',
-                            'Propositions', 'Surfaces', 'Function words', 'Referents',
+                            'Other Semantics (event+prop)', 'Attributes ("arg" edges) [surface form if any]',
+                            'Entities', 'Propositions', 'Surfaces', 'Function words', 'Referents',
                             'Sentence', 'Guess Offset', 'Pronominalisation', 'Temporalities'])
     with open('ccg_categories_all.csv', 'w+') as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
                             'Training cat', 'Agent-1', 'Patient-1', 'Sentence', 'Guess Offset'])
+    with open('relations_events_all.csv', 'w+') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'Event Relations', 'Sentence', 'Guess Offset'])
     # create five separate documents for each subcorpus
     subcorpora = ['Voice_of_America', 'CIA_World_Factbook', 'fables', 'basicjokes', 'MASC_Full']
     for i in range(0,5):
@@ -92,6 +98,11 @@ def read_corpus(gmb_path):
                 out += ccg + '\t' + str(sems_synt[abr_roles][ccg]) + '\n'
             out += '\n\n'
         f.write(out)
+    with open('discourse_connectives.txt', 'w+') as f:
+        out = ''
+        for path in event_relations_dict:
+            out += path + '\t' + '||'.join(event_relations_dict[path]) + '\n'
+        f.write(out)
 
 
 def drg_mining(file_path):
@@ -119,9 +130,12 @@ def drg_mining(file_path):
     tags_sent = []
     tags_file = []
     file_train_set = {}
+    file_event_relations = set()  # store relations between events;
     global roles_dict
     global ccg_cats
     global sems_synt
+    global event_relations_dict
+    global discourse_connectives
     global word_which_count
     global pred_which_count
     with open(file_path+'en.tags', 'r') as f:
@@ -177,7 +191,7 @@ def drg_mining(file_path):
                 token = 'EllipticalEvent'
 
         # Get event relations
-        them_roles_smart, them_roles, temporalities, semantics, semantics_events, attributes,\
+        them_roles_smart, them_roles, temporalities, semantics, semantics_events, semantics_ev_prop, attributes,\
         instances, surfaces, propositions, connectives, connectives2, pronoms = event_relation(drg_tuples, event_id)
         # Get offset of the event
         offset, guess = get_sentences(file_path, pure_event_id, predicate)  # i16014, no
@@ -192,10 +206,25 @@ def drg_mining(file_path):
         # write all data to files
         with open('events_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
+            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(semantics_ev_prop), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
         with open('ccg_categories_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
+        # write events which have relations (i.e. semantics_events is not empty)
+        if semantics_events:
+            with open('relations_events_all.csv', 'a') as csvfile:
+                csvwriter = csv.writer(csvfile)
+                csvwriter.writerow([subcorpus, fpath_short, token, offset, ', '.join(semantics_events), ' '.join(target_sent)])
+            # cut off surface forms in brackets
+            semantics_events_nosurface = []
+            for connective in semantics_events:
+                discourse_connectives.add(connective.split('(')[0])
+                if '[' in connective:
+                    semantics_events_nosurface += [connective.split(' [')[0]]
+                else:
+                    semantics_events_nosurface += [connective]
+            # add event relations to the set which accounts for the whole file
+            file_event_relations = file_event_relations.union(set(semantics_events_nosurface))
         # write data to each subcorpus separately
         with open('./data_by_subcorpus/' + subc_short + '_events.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
@@ -225,8 +254,11 @@ def drg_mining(file_path):
         if offset != 'Not available' and train_cat != 'Not available':
             file_train_set[offset] = [them_roles_smart, train_cat]
 
-    # write all training data for CRFs to file
+    # store discourse relations for each file
+    if file_event_relations:
+        event_relations_dict[fpath_short] = file_event_relations
 
+    # write all training data for CRFs to file
     crf_data_pairs(file_train_set, fpath_short, 'training_data_pairs_all.txt')
     crf_data(file_train_set, fpath_short, 'training_data_sequences_all.txt')
     # write training data for CRFs by subcorpus
@@ -251,6 +283,7 @@ def event_relation(drg_tuples, event_id):
     temporalities = []
     relations = []
     relations_events = []
+    relations_event_prop = []
     attributes = []
     instances = []
     surfaces = []
@@ -308,10 +341,12 @@ def event_relation(drg_tuples, event_id):
                             # add surface form if exists
                             if dtuple[5] != ']':
                                 triple += ' [' + dtuple[5] + ']'
-                            if current_triple[1].startswith('e') and not current_triple[2].startswith('x'):
+                            if current_triple[1].startswith('e') and current_triple[2].startswith('e'):
                                 relations_events.append(triple)
+                            elif current_triple[1].startswith('e') and not current_triple[2].startswith('x'):
+                                relations_event_prop.append(triple)
                             elif not current_triple[1].startswith('x') and current_triple[2].startswith('e'):
-                                relations_events.append(triple)
+                                relations_event_prop.append(triple)
                             else:
                                 relations.append(triple)  # triple is filled
                         semtypes.add(current_triple[0])
@@ -353,12 +388,14 @@ def event_relation(drg_tuples, event_id):
                         elif current_triple[0].startswith('temp'):
                             temporalities.append(triple)
                             temporalities = get_temporalities(drg_tuples, temporalities, current_triple[0], dtuple)
-                        # add other semantics
+                        # add other semantics, sort relations: event and arg, event and event, event and proposition/s
                         else:
-                            if current_triple[1].startswith('e') and not current_triple[2].startswith('x'):
+                            if current_triple[1].startswith('e') and current_triple[2].startswith('e'):
                                 relations_events.append(triple)
+                            elif current_triple[1].startswith('e') and not current_triple[2].startswith('x'):
+                                relations_event_prop.append(triple)
                             elif not current_triple[1].startswith('x') and current_triple[2].startswith('e'):
-                                relations_events.append(triple)
+                                relations_event_prop.append(triple)
                             else:
                                 relations.append(triple)  # triple is filled
                         semtypes.add(current_triple[0])
@@ -410,7 +447,7 @@ def event_relation(drg_tuples, event_id):
         # if dtuple[0] == discourse_unit and dtuple[2] == event_id and (dtuple[1] == 'function' or dtuple[1] == 'referent') and dtuple[5] != ']':
         #  connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
         current_triple = ['REL', 'INT', 'EXT']
-    return them_roles_smart, them_roles, temporalities, relations, relations_events, attributes,\
+    return them_roles_smart, them_roles, temporalities, relations, relations_events, relations_event_prop, attributes,\
            instances, surfaces, propositions, connectives, connectives2, pronoms
 
 # todo function to generate readable triples
@@ -786,7 +823,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, ptb_tags,
                 refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_4position)
             else:
                 refined_cat = prev_token_cat_norm + '\t[modified-3]'
-        #negation with adv:  are not just paying, is not completely withdrawing
+        # negation with adv:  are not just paying, is not completely withdrawing
         elif lemma_3 == 'be' and '/(S[ng]\\NP)' in lemma_3_cat and lemma_2 == 'not':
             prev_token_cat_norm = normalise_ccg_cat(lemma_3_cat)
             if prev_token_cat_norm == 'S[dcl]\\NP':
@@ -1091,5 +1128,6 @@ def crf_data(file_train_set, fpath_short, path_to_file):
 read_corpus(GMB_path)
 print(semtypes)
 print('Graph edges: {}'.format(edges))
+print('Discourse connectives: {}'.format(discourse_connectives))
 print('Which in predicates: {}'.format(pred_which_count))
 print('Which in words: {}'.format(word_which_count))
