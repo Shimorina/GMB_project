@@ -54,14 +54,14 @@ def read_corpus(gmb_path):
         csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'Event Relations', 'Sentence', 'Guess Offset'])
     # create five separate documents for each subcorpus
     subcorpora = ['Voice_of_America', 'CIA_World_Factbook', 'fables', 'basicjokes', 'MASC_Full']
-    for i in range(0,5):
+    for i in range(0, 5):
         with open('./data_by_subcorpus/' + subcorpora[i] + '_events.csv', 'w+') as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Event', 'Offset', 'Event Predicate', 'Thematic roles',
-                            'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
-                            'Attributes ("arg" edges) [surface form if any]', 'Entities',
-                            'Propositions', 'Surfaces', 'Function words', 'Referents',
-                            'Sentence', 'Guess Offset', 'Pronominalisation', 'Temporalities'])
+                                'Other Semantics [surface form if any]', 'Other Semantics (Two events)',
+                                'Attributes ("arg" edges) [surface form if any]', 'Entities',
+                                'Propositions', 'Surfaces', 'Function words', 'Referents',
+                                'Sentence', 'Guess Offset', 'Pronominalisation', 'Temporalities'])
         with open('./data_by_subcorpus/' + subcorpora[i] + '_ccg.csv', 'w+') as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
@@ -75,6 +75,10 @@ def read_corpus(gmb_path):
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
     with open('training_data_sequences_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
+    with open('training_data_pairs_discourse_all.txt', 'w+') as f:
+        f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tDiscourse\tLabel\n')
+    with open('training_data_sequences_discourse_all.txt', 'w+') as f:
+        f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tDiscourse\tLabel\n')
     for partition in os.listdir(gmb_path):
         partition_path = gmb_path + '/' + partition  # get path of each partition
         for entry in os.listdir(partition_path):
@@ -109,12 +113,11 @@ def drg_mining(file_path):
     """
     Read DRG file. For each event call the function event_relation and get its offset and ccg category.
     Write extracted data to csv files.
-    Construct two types of the training data for CRFs.
+    Construct four types of the training data for CRFs (pairs/sequences, without/with discourse).
     :param file_path: path to a file in the GMB corpus
     :return:
     """
     # Read met file and extract the name of subcorpus
-    subcorpus_set = set()
     subcorpus = 'UnavailableSubcorpus'
     with open(file_path+'en.met', 'r') as f:
         for line in f:
@@ -130,6 +133,7 @@ def drg_mining(file_path):
     tags_sent = []
     tags_file = []
     file_train_set = {}
+    file_train_set_discourse = {}
     file_event_relations = set()  # store relations between events;
     global roles_dict
     global ccg_cats
@@ -192,7 +196,7 @@ def drg_mining(file_path):
 
         # Get event relations
         them_roles_smart, them_roles, temporalities, semantics, semantics_events, semantics_ev_prop, attributes,\
-        instances, surfaces, propositions, connectives, connectives2, pronoms = event_relation(drg_tuples, event_id)
+            instances, surfaces, propositions, connectives, connectives2, pronoms = event_relation(drg_tuples, event_id)
         # Get offset of the event
         offset, guess = get_sentences(file_path, pure_event_id, predicate)  # i16014, no
         # Get sentence with the event in question
@@ -201,20 +205,28 @@ def drg_mining(file_path):
         else:
             target_sent = 'Unknown'
         # Get the ccg category for the event
-        ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret = profiling_ccg_category(token, offset, ccg_categories_file, lemmas_file, tags_file, sent, them_roles_smart, pronoms)
+        ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret = \
+            profiling_ccg_category(token, offset, ccg_categories_file, lemmas_file,
+                                   tags_file, sent, them_roles_smart, pronoms)
         fpath_short = file_path.split('/')[-3] + '/' + file_path.split('/')[-2]
         # write all data to files
         with open('events_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(semantics_ev_prop), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
+            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles),
+                                ', '.join(semantics), ', '.join(semantics_events), ', '.join(semantics_ev_prop),
+                                ', '.join(attributes), ', '.join(instances), ', '.join(propositions),
+                                '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2),
+                                ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
         with open('ccg_categories_all.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
+            csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat,
+                                train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
         # write events which have relations (i.e. semantics_events is not empty)
         if semantics_events:
             with open('relations_events_all.csv', 'a') as csvfile:
                 csvwriter = csv.writer(csvfile)
-                csvwriter.writerow([subcorpus, fpath_short, token, offset, ', '.join(semantics_events), ' '.join(target_sent)])
+                csvwriter.writerow([subcorpus, fpath_short, token, offset,
+                                    ', '.join(semantics_events), ' '.join(target_sent)])
             # cut off surface forms in brackets
             semantics_events_nosurface = []
             for connective in semantics_events:
@@ -228,11 +240,15 @@ def drg_mining(file_path):
         # write data to each subcorpus separately
         with open('./data_by_subcorpus/' + subc_short + '_events.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([subcorpus])
-            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles), ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes), ', '.join(instances), ', '.join(propositions), '||'.join(surfaces), ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent), guess, ', '.join(pronoms), ', '.join(temporalities)])
+            csvwriter.writerow([subcorpus, fpath_short, token, event_id, offset, predicate_arg, ', '.join(them_roles),
+                                ', '.join(semantics), ', '.join(semantics_events), ', '.join(attributes),
+                                ', '.join(instances), ', '.join(propositions), '||'.join(surfaces),
+                                ' '.join(connectives), ' '.join(connectives2), ' '.join(target_sent),
+                                guess, ', '.join(pronoms), ', '.join(temporalities)])
         with open('./data_by_subcorpus/' + subc_short + '_ccg.csv', 'a') as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat, train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
+            csvwriter.writerow([subcorpus, fpath_short, token, offset, ccg_category, ccg_cat_norm, refined_cat,
+                                train_cat, wh_pretend, wh_obj_pret, ' '.join(target_sent), guess])
 
         # calculate stats of thematic roles and ccg categories
         roles_dict, ccg_cats, abr_roles = calculate_stats(them_roles, roles_dict, ccg_category, ccg_cats)
@@ -248,11 +264,27 @@ def drg_mining(file_path):
                 pred_which_count += 1
         if 'which' in target_sent or 'Which' in target_sent:
             word_which_count += 1
+        # features for several discourse connectives: ['for', 'while', 'after', 'as', 'before', 'if', 'since', 'when']
+        connectives_our_focus = ['for', 'while', 'after', 'as', 'before', 'if', 'since', 'when']
+        discourse_features = []  # store discourse connectives for each event
+        if semantics_events:
+            for connective in semantics_events:
+                connective_type = connective.split('(')[0]  #
+                if connective_type in connectives_our_focus:
+                    # add the feature only to the relative clause,
+                    # as the second argument of the relation is equal to the current event
+                    # assign "before" only to "e14": before(e15, e14), before hitting [e14], he slammed [e15]
+                    relative_clause_event_id = connective.split(')')[0].split(', ')[1]  # after(e17, e18) [after]
+                    if pure_event_id == relative_clause_event_id:
+                        # add it to the discourse features
+                        discourse_features += [connective_type]
         # collect training data for each file
         # put all events of one file to dict with the structure: i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+        # do the same for the dict with discourse connectives: i450 : [[agent:x1, patient:x56, recipient:x4], [after], NP/S]
         # we do not consider events marked as EVENT
         if offset != 'Not available' and train_cat != 'Not available':
             file_train_set[offset] = [them_roles_smart, train_cat]
+            file_train_set_discourse[offset] = [them_roles_smart, discourse_features, train_cat]
 
     # store discourse relations for each file
     if file_event_relations:
@@ -264,6 +296,11 @@ def drg_mining(file_path):
     # write training data for CRFs by subcorpus
     crf_data_pairs(file_train_set, fpath_short, './data_by_subcorpus/' + subc_short + '_pairs.txt')
     crf_data(file_train_set, fpath_short, './data_by_subcorpus/' + subc_short + '_sequences.txt')
+    # write training data for CRFs with discourse connectives
+    crf_data_pairs_discourse(file_train_set_discourse, fpath_short, 'training_data_pairs_discourse_all.txt')
+    crf_data_discourse(file_train_set_discourse, fpath_short, 'training_data_sequences_discourse_all.txt')
+    crf_data_pairs_discourse(file_train_set_discourse, fpath_short, './data_by_subcorpus/' + subc_short + '_pairs_discourse.txt')
+    crf_data_discourse(file_train_set_discourse, fpath_short, './data_by_subcorpus/' + subc_short + '_sequences_discourse.txt')
 
 
 semtypes = set()
@@ -277,7 +314,8 @@ def event_relation(drg_tuples, event_id):
     :param event_id: id of the event in a DRG tuple, e.g. k3:p1:e5
     :return:
     """
-    current_triple = ['REL', 'INT', 'EXT']  # conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
+    # conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
+    current_triple = ['REL', 'INT', 'EXT']
     them_roles = []
     them_roles_smart = []  # role:event_arg, e.g. agent-1:e9
     temporalities = []
@@ -320,7 +358,7 @@ def event_relation(drg_tuples, event_id):
 
             # c54:patient:1 ext k3:p1:x16 0 [ ]
             for dtuple in drg_tuples:
-                if dtuple[0] == sem_id:   # todo more fine-grained algorithm: int, ext, arg
+                if dtuple[0] == sem_id:
                     # collect event ids in propositions if any
                     if 'p' in dtuple[2].split(':')[-1]:
                         propositions = get_propositions(drg_tuples, propositions, dtuple[2])
@@ -403,7 +441,8 @@ def event_relation(drg_tuples, event_id):
                         # Search for equivs in drg and extract surface forms from referents if any
                         # c209:equality ext k76:x37
                         for dtuple in drg_tuples:
-                            if dtuple[2] == inst_id and dtuple[1] == 'referent' and dtuple[5] != ']':  # k4:p3 referent k4:p3:x28 1 [ that ]
+                            # k4:p3 referent k4:p3:x28 1 [ that ]
+                            if dtuple[2] == inst_id and dtuple[1] == 'referent' and dtuple[5] != ']':
                                 connectives2.append('referent "' + dtuple[5] + '" (' + inst_id.split(':')[-1] + ')')
                             eq_node = dtuple[0]
                             if dtuple[2] == inst_id and eq_node.split(':')[-1] == 'equality':
@@ -448,7 +487,7 @@ def event_relation(drg_tuples, event_id):
         #  connectives.append(dtuple[1] + ' "' + dtuple[5] + '"')
         current_triple = ['REL', 'INT', 'EXT']
     return them_roles_smart, them_roles, temporalities, relations, relations_events, relations_event_prop, attributes,\
-           instances, surfaces, propositions, connectives, connectives2, pronoms
+        instances, surfaces, propositions, connectives, connectives2, pronoms
 
 # todo function to generate readable triples
 
@@ -507,7 +546,7 @@ def get_propositions(drg_tuples, propositions, inst_id):
 
 
 def get_temporalities(drg_tuples, temporalities, temp_type, ddtuple):
-    '''Extract temporal relations from DRG'''
+    """Extract temporal relations from DRG"""
     # c27:temp_included:1 ext k1:t2 0 [ ]
     # c28:equality int k1:t2 0 [ ]
     # c28:equality ext k1:t1 0 [ ]
@@ -518,8 +557,8 @@ def get_temporalities(drg_tuples, temporalities, temp_type, ddtuple):
                 pred_type = dtuple[0].split(":")[-2]
                 temporalities = find_equal_elements(drg_tuples, temporalities, dtuple)
             elif dtuple[2] == ddtuple[2] and ('temp_includes' in dtuple[0] or 'temp_before' in dtuple[0]):
-               temp_type_upd = dtuple[0].split(':')[-2]
-               temporalities = get_temporalities(drg_tuples, temporalities, temp_type_upd, dtuple)
+                temp_type_upd = dtuple[0].split(':')[-2]
+                temporalities = get_temporalities(drg_tuples, temporalities, temp_type_upd, dtuple)
     elif temp_type == 'temp_includes' or temp_type == 'temp_before':
         # c81:temp_before:1 ext k28:t6 0 [ ]
         # c81:temp_before:1 int k28:t1 1 [ ]
@@ -579,7 +618,7 @@ def find_equal_elements(drg_tuples, elements, ddtuple, flag='equality'):
 
 
 def get_sentences(curr_directory, event_arg, predicate, guess='no', recursion_depth=0):
-    '''Read DRS xml file. extract offset of events and sentences'''
+    """Read DRS xml file. extract offset of events and sentences"""
     tree = ETree.parse(curr_directory + 'en.drs.xml')
     root = tree.getroot()
     offset = ''
@@ -776,7 +815,8 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, ptb_tags,
         elif lemma_2 == 'be' and '/(S[pss]\\NP)' in lemma_2_cat and lemma_1_tag == 'RB':
             refined_cat = 'S[pss-dcl-2token]\\NP'
             refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
-        # was spotted and prevented; was also brutally attacked; were no longer bound, but exclude "be held as scheduled"
+        # was spotted and prevented; was also brutally attacked;
+        #  were no longer bound, but exclude "be held as scheduled"
         elif lemma_3 == 'be' and '/(S[pss]\\NP)' in lemma_3_cat and (lemma_1_cat == 'conj' or lemma_2_tag == 'RB'):
             refined_cat = 'S[pss-dcl-3token]\\NP'
             refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_3position)
@@ -851,7 +891,8 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, ptb_tags,
                 refined_cat = 'S[dcl-perfect-2token]\\NP'
                 refined_cat_wh = wh_check(ccg_cats_sent, tags, curr_position=tk_2position)
             else:
-                refined_cat = prev_token_cat_norm + '\t[modified-2]'  # having just surfeited, appears to have largely boycotted, may have accidentally strayed
+                # having just surfeited, appears to have largely boycotted, may have accidentally strayed
+                refined_cat = prev_token_cat_norm + '\t[modified-2]'
         # has almost completely eliminated; have burned and dragged
         elif lemma_3 == 'have' and '/(S[pt]\\NP)' in lemma_3_cat:
             prev_token_cat_norm = normalise_ccg_cat(lemma_3_cat)
@@ -870,7 +911,7 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, ptb_tags,
                       'S[dcl-continuous-3token--neg]\\NP', 'S[dcl-perfect_continuous-3token]\\NP',
                       'S[dcl-continuous-3token]\\NP', 'S[dcl-perfect_continuous-2token]\\NP',
                       'S[dcl-continuous-2token]\\NP', 'S[dcl-perfect_continuous-1token]\\NP', 'S[dcl-continuous]\\NP',
-                      'S[dcl-have-to-Inf]\\NP', 'S[dcl-neg/modal]\\NP', 'S[dcl-modal]\\NP', 'S[dcl-modal-coord]\\NP',]
+                      'S[dcl-have-to-Inf]\\NP', 'S[dcl-neg/modal]\\NP', 'S[dcl-modal]\\NP', 'S[dcl-modal-coord]\\NP']
     train_cats_bare = ['S[bare-to-Inf]\\NP', 'S[bare-to-Inf-2token]\\NP']
     train_cats_pss = ['S[pss-dcl-3token]\\NP', 'S[pss-dcl-2token]\\NP', 'S[pss-dcl]\\NP']
     # delete comments like [not changed], [modified]
@@ -928,7 +969,8 @@ def profiling_ccg_category(token, offset, ccg_categories_file, lemmas, ptb_tags,
     # e.g. he was obliged to keep shares
     if training_cat == 'S[pss-dcl]\\NP' and 'theme' in them_roles and 'recipient' in them_roles and 'theme|||Pro' in pronouns:
         pro_subj_recip_flag = True
-    # if there are agent and recipient as roles and no patient and recipient is pronominalised, then recipient is treated as ProObj
+    # if there're agent and recipient as roles and no patient and recipient is pronominalised,
+    # then recipient is treated as ProObj
     # he urged them not to increase tensions -- them is a recipient
     if 'agent' in them_roles and 'recipient' in them_roles and 'patient' not in them_roles and 'recipient|||Pro' in pronouns:
         if training_cat in 'S[dcl]\\NP':
@@ -975,94 +1017,118 @@ def wh_check(ccg_tags, tags, curr_position):
     elif ccg_tag3.endswith('(S[dcl]\\NP)') and tag1 == 'RB' and tag2 == 'RB':
         refined_cat_wh = True
     else:
-        refined_cat_wh = False  # missed: policies which the group says include, attack that killed eight people and injured
+        refined_cat_wh = False
+        # missed: policies which the group says include, attack that killed eight people and injured
     return refined_cat_wh
 
 
 def crf_data_pairs(file_train_set, fpath_short, path_to_file):
+    """
+    Generate the file with pairs for the CRF input. Each pair has two events.
+     Each event is represented by its features (thematic roles) and its syntactic label.
+     Append output for each file to the CRF training file.
+    :param file_train_set: dictionary of all events for one file with the following structure:
+    {event: [thematic roles and their arguments], [discourse connectives], syntactic label]},
+    e.g. i450 : [[agent:x1, patient:x56, recipient:x4], [after], NP/S]
+    :param fpath_short: name of the path to the file, e.g. p12/d0148
+    :param path_to_file: name of the file where the output is to be written
+    :return:
+    """
+    placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
+                        'theme-1', 'recipient', 'recipient-1', 'topic']
+    placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-']
+    replacements = ['X', 'Y', 'Z', 'W', 'U']
+    out = ''
+    events = natsorted(file_train_set.keys())
+    # for each pair of events, we will extract features and set them to 1 or to X
+    # if roles of two events have the argument in common
+    for i in range(len(events) - 1):
+        event = events[i]
+        next_event = events[i + 1]
+        # events must be in one sentence! (i12003 -- 12 is equal to the sent number)
+        if event[1:-3] != next_event[1:-3]:
+            continue
+        out += '#' + event + ' ---> ' + next_event + ' from ' + fpath_short + '\n'
+        features, label = file_train_set[event]
+        features2, label2 = file_train_set[next_event]
+        # check if two sets of features have same arguments of thematic roles
+        arguments = [feat.split(':')[1] for feat in sorted(features)]
+        arguments2 = [feat.split(':')[1] for feat in sorted(features2)]
+        common_elements = [val for val in arguments if val in arguments2]
+        # remove duplicates; we can't use sets as the order is important
+        common_elements_no_dup = []
+        for el in common_elements:
+            if el not in common_elements_no_dup:
+                common_elements_no_dup.append(el)
+        # replace common args with X, Y, Z, etc in a placeholder
+        if common_elements_no_dup:
+            j = 0  # iterate over replacements: X, Y, Z, etc
+            placeholder_with_x_second = list(placeholder)
+            placeholder_with_x_first = list(placeholder)
+            for element in common_elements_no_dup:
+                # find the role of the common element and replace it with X
+                # do it for the first event in a pair
+                for feat in sorted(features):
+                    role, argument = feat.split(':')
+                    if element == argument:
+                        role_index = placeholder_dict.index(role)
+                        placeholder_with_x_first[role_index] = replacements[j]
+                # for the second event in a pair
+                for feat in sorted(features2):
+                    role, argument = feat.split(':')
+                    if element == argument:
+                        role_index = placeholder_dict.index(role)
+                        placeholder_with_x_second[role_index] = replacements[j]
+                j += 1
+        else:
+            placeholder_with_x_first = list(placeholder)
+            placeholder_with_x_second = list(placeholder)
+
+        # replace all other args with 1 except for X, Y, etc
+        for feature in features:
+            role, argument = feature.split(':')
+            role_index = placeholder_dict.index(role)
+            if placeholder_with_x_first[role_index] not in replacements:
+                placeholder_with_x_first[role_index] = '1'
+        # write to output the first event
+        out += '\t'.join(placeholder_with_x_first) + '\t' + label + '\n'
+
+        # replace all other args with 1 except for X, Y, etc
+        for feature in features2:
+            role, argument = feature.split(':')
+            role_index = placeholder_dict.index(role)
+            if placeholder_with_x_second[role_index] not in replacements:
+                placeholder_with_x_second[role_index] = '1'
+        # write to output the second event
+        out += '\t'.join(placeholder_with_x_second) + '\t' + label2 + '\n\n'
     with open(path_to_file, 'a') as f:
-        placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
-                            'theme-1', 'recipient', 'recipient-1', 'topic']
-        placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-']
-        replacements = ['X', 'Y', 'Z', 'W', 'U']
-        out = ''
-        events = natsorted(file_train_set.keys())
-        # for each pair of events, we will extract features and set them to 1 or to X
-        # if roles of two events have the argument in common
-        for i in range(len(events) - 1):
-            event = events[i]
-            next_event = events[i + 1]
-            # events must be in one sentence! (i12003 -- 12 is equal to the sent number)
-            if event[1:-3] != next_event[1:-3]:
-                continue
-            out += '#' + event + ' ---> ' + next_event + ' from ' + fpath_short + '\n'
-            features, label = file_train_set[event]
-            features2, label2 = file_train_set[next_event]
-            # check if two sets of features have same arguments of thematic roles
-            arguments = [feat.split(':')[1] for feat in sorted(features)]
-            arguments2 = [feat.split(':')[1] for feat in sorted(features2)]
-            common_elements = [val for val in arguments if val in arguments2]
-            # remove duplicates; we can't use sets as the order is important
-            common_elements_no_dup = []
-            for el in common_elements:
-                if el not in common_elements_no_dup:
-                    common_elements_no_dup.append(el)
-            # replace common args with X, Y, Z, etc in a placeholder
-            if common_elements_no_dup:
-                j = 0  # iterate over replacements: X, Y, Z, etc
-                placeholder_with_x_second = list(placeholder)
-                placeholder_with_x_first = list(placeholder)
-                for element in common_elements_no_dup:
-                    # find the role of the common element and replace it with X
-                    # do it for the first event in a pair
-                    for feat in sorted(features):
-                        role, argument = feat.split(':')
-                        if element == argument:
-                            role_index = placeholder_dict.index(role)
-                            placeholder_with_x_first[role_index] = replacements[j]
-                    # for the second event in a pair
-                    for feat in sorted(features2):
-                        role, argument = feat.split(':')
-                        if element == argument:
-                            role_index = placeholder_dict.index(role)
-                            placeholder_with_x_second[role_index] = replacements[j]
-                    j += 1
-            else:
-                placeholder_with_x_first = list(placeholder)
-                placeholder_with_x_second = list(placeholder)
-
-            # replace all other args with 1 except for X, Y, etc
-            for feature in features:
-                role, argument = feature.split(':')
-                role_index = placeholder_dict.index(role)
-                if placeholder_with_x_first[role_index] not in replacements:
-                    placeholder_with_x_first[role_index] = '1'
-            # write to output the first event
-            out += ('\t').join(placeholder_with_x_first) + '\t' + label + '\n'
-
-            # replace all other args with 1 except for X, Y, etc
-            for feature in features2:
-                role, argument = feature.split(':')
-                role_index = placeholder_dict.index(role)
-                if placeholder_with_x_second[role_index] not in replacements:
-                    placeholder_with_x_second[role_index] = '1'
-            # write to output the second event
-            out += '\t'.join(placeholder_with_x_second) + '\t' + label2 + '\n\n'
         f.write(out)
 
 
 def crf_data(file_train_set, fpath_short, path_to_file):
-    with open(path_to_file, 'a') as f:  # i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+    """
+     Generate the file for the CRF input. It contains sentences (=sequences). Each sequence has several events.
+     Each event is represented by its features (thematic roles) and its syntactic label.
+     Append output for each file to the CRF training file.
+    :param file_train_set: dictionary of all events for one file with the following structure:
+    {event: [thematic roles and their arguments], syntactic label]},
+    e.g. i450 : [[agent:x1, patient:x56, recipient:x4], NP/S]
+    :param fpath_short: name of the path to the corpus file, e.g. p12/d0148
+    :param path_to_file: name of the output file
+    :return:
+    """
+    with open(path_to_file, 'a') as f:
         placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
                             'theme-1', 'recipient', 'recipient-1', 'topic']
-        placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label']
+        # placeholder = ['-', '-', '-', '-', '-', '-', '-', '-', '-', 'label']
         replacements = sorted(list(string.ascii_uppercase), reverse=True)  # the english alphabet
         out2 = ''
         # group events by sentences
         events = natsorted(file_train_set.keys())
         # list of empty dicts; take the last event to get the number of sentences
         sents = [{} for _ in range(int(events[-1][1:-3]))]
-        # create dicts of events for each sentence: [{i100:[[roles], label], i109:[[roles], label], ...}, {i203:...}, {}, ...]
+        # create dicts of events for each sentence:
+        # [{i100:[[roles], label], i109:[[roles], label], ...}, {i203:...}, {}, ...]
         for event in events:
             sent_number = int(event[1:-3])  # i13010, 13 stands for the sent number
             sents[sent_number - 1][event] = file_train_set[event]
@@ -1123,6 +1189,194 @@ def crf_data(file_train_set, fpath_short, path_to_file):
             out2 += '\n'
         f.write(out2)
         # print(sent_placeholder)
+
+
+def crf_data_pairs_discourse(file_train_set, fpath_short, path_to_file):
+    """
+    Generate the file with pairs for the CRF input enhanced with discourse relations.
+    Each pair has two events.
+     Each event is represented by its features (thematic roles, discourse relations) and its syntactic label.
+     Append output for each file to the CRF training file.
+    :param file_train_set: dictionary of all events for one file with the following structure:
+    {event: [thematic roles and their arguments], [discourse connectives], syntactic label]},
+    e.g. i450 : [[agent:x1, patient:x56, recipient:x4], [after], NP/S]
+    :param fpath_short: name of the path to the file, e.g. p12/d0148
+    :param path_to_file: name of the file where the output is to be written
+    :return
+    """
+    placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
+                        'theme-1', 'recipient', 'recipient-1', 'topic',
+                        'for', 'while', 'after', 'as', 'before', 'if', 'since', 'when']
+    placeholder = ['-'] * len(placeholder_dict)
+    replacements = ['X', 'Y', 'Z', 'W', 'U']
+    out = ''
+    # group events by sentences
+    events = natsorted(file_train_set.keys())
+    # for each pair of events, we will extract features and set them to 1 or to X
+    # if roles of two events have the argument in common
+    for i in range(len(events) - 1):
+        event = events[i]
+        next_event = events[i + 1]
+        # events must be in one sentence! (i12003 -- 12 is equal to the sent number)
+        if event[1:-3] != next_event[1:-3]:
+            continue
+        out += '#' + event + ' ---> ' + next_event + ' from ' + fpath_short + '\n'
+        features, discourse, label = file_train_set[event]
+        features2, discourse2, label2 = file_train_set[next_event]
+        # check if two sets of features have same arguments of thematic roles
+        arguments = [feat.split(':')[1] for feat in sorted(features)]
+        arguments2 = [feat.split(':')[1] for feat in sorted(features2)]
+        common_elements = [val for val in arguments if val in arguments2]
+        # remove duplicates; we can't use sets as the order is important
+        common_elements_no_dup = []
+        for el in common_elements:
+            if el not in common_elements_no_dup:
+                common_elements_no_dup.append(el)
+        # replace common args with X, Y, Z, etc in a placeholder
+        if common_elements_no_dup:
+            j = 0  # iterate over replacements: X, Y, Z, etc
+            placeholder_with_x_second = list(placeholder)
+            placeholder_with_x_first = list(placeholder)
+            for element in common_elements_no_dup:
+                # find the role of the common element and replace it with X
+                # do it for the first event in a pair
+                for feat in sorted(features):
+                    role, argument = feat.split(':')
+                    if element == argument:
+                        role_index = placeholder_dict.index(role)
+                        placeholder_with_x_first[role_index] = replacements[j]
+                # for the second event in a pair
+                for feat in sorted(features2):
+                    role, argument = feat.split(':')
+                    if element == argument:
+                        role_index = placeholder_dict.index(role)
+                        placeholder_with_x_second[role_index] = replacements[j]
+                j += 1
+        else:
+            placeholder_with_x_first = list(placeholder)
+            placeholder_with_x_second = list(placeholder)
+
+        # replace all other args with 1 except for X, Y, etc
+        for feature in features:
+            role, argument = feature.split(':')
+            role_index = placeholder_dict.index(role)
+            if placeholder_with_x_first[role_index] not in replacements:
+                placeholder_with_x_first[role_index] = '1'
+        # replace connective with 1 if exists
+        if discourse:
+            for connective in discourse:
+                discourse_index = placeholder_dict.index(connective)
+                placeholder_with_x_first[discourse_index] = '1'
+        # write to output the first event
+        out += '\t'.join(placeholder_with_x_first) + '\t' + label + '\n'
+
+        # replace all other args with 1 except for X, Y, etc
+        for feature in features2:
+            role, argument = feature.split(':')
+            role_index = placeholder_dict.index(role)
+            if placeholder_with_x_second[role_index] not in replacements:
+                placeholder_with_x_second[role_index] = '1'
+        # replace connective with 1 if exists
+        if discourse2:
+            for connective in discourse2:
+                discourse_index = placeholder_dict.index(connective)
+                placeholder_with_x_second[discourse_index] = '1'
+        # write to output the second event
+        out += '\t'.join(placeholder_with_x_second) + '\t' + label2 + '\n\n'
+    with open(path_to_file, 'a') as f:
+        f.write(out)
+
+
+def crf_data_discourse(file_train_set, fpath_short, path_to_file):
+    """
+    Generate the file with sequences for the CRF input enhanced with discourse relations.
+     It contains sentences (=sequences). Each sequence has several events.
+     Each event is represented by its features (thematic roles, discourse relations) and its syntactic label.
+     Append output for each file to the CRF training file.
+    :param file_train_set: dictionary of all events for one file with the following structure:
+    {event: [[thematic roles and their arguments], [discourse], syntactic label]},
+    e.g. i450 : [[agent:x1, patient:x56, recipient:x4], [as], NP/S]
+    :param fpath_short: name of the path to the file, e.g. p12/d0148
+    :param path_to_file: name of the file where the output is to be written
+    :return:
+    """
+    placeholder_dict = ['agent', 'patient', 'agent-1', 'patient-1', 'theme',
+                        'theme-1', 'recipient', 'recipient-1', 'topic',
+                        'for', 'while', 'after', 'as', 'before', 'if', 'since', 'when']
+    # placeholder = ['-'] * len(placeholder_dict) + ['label']
+    replacements = sorted(list(string.ascii_uppercase), reverse=True)  # the english alphabet
+    out2 = ''
+    # group events by sentences
+    events = natsorted(file_train_set.keys())
+    # list of empty dicts; take the last event to get the number of sentences
+    sents = [{} for _ in range(int(events[-1][1:-3]))]
+    # create dicts of events for each sentence:
+    # [{i100:[[roles], [discourse], label], i109:[[roles], [discourse], label], ...}, {i203:...}, {}, ...]
+    for event in events:
+        sent_number = int(event[1:-3])  # i13010, 13 stands for the sent number
+        sents[sent_number - 1][event] = file_train_set[event]
+    # for each sentence, extract features and set them to 1 or to X, Y, etc if roles have the argument in common
+    for senten in sents:
+        out2 += '#' + '--->'.join(natsorted(senten.keys())) + ' from ' + fpath_short + '\n'
+        sent_args = []  # contains lists of args for each event
+        # generate a placeholder for each event in a sentence
+        sent_placeholder = [['-'] * len(placeholder_dict) + ['label'] for i in range(len(senten))]
+        for event in natsorted(senten):
+            features, discourse, label = senten[event]
+            arguments = [feat.split(':')[1] for feat in features]
+            sent_args.append(arguments)
+        # for each pair of events, check if they have elements in common
+        common_elements = []
+        for ev1 in sent_args:
+            for ev2 in sent_args:
+                if ev1 != ev2:
+                    common_elements += [item for item in set(ev1).intersection(ev2)]
+        common_elements_unique = list(set(common_elements))
+        # sort common args as a list of thematic roles in the placeholder_dict ??
+
+        # replace common args with Z, Y, X, etc in a placeholder
+        if common_elements_unique:
+            j = 0  # iterate over replacements: Z, Y, X, etc
+            for element in common_elements_unique:
+                # find the role of the common element and replace it with X
+                # do it for each event in a sentence
+                # i100 : [[agent:x1, patient:x5], label]
+                ev_counter = 0
+                for event in natsorted(senten):
+                    features, discourse, label = senten[event]
+                    for feat in features:
+                        role, argument = feat.split(':')
+                        if element == argument:
+                            role_index = placeholder_dict.index(role)
+                            sent_placeholder[ev_counter][role_index] = replacements[j]
+                    ev_counter += 1
+                j += 1
+        # replace all other args of events with 1 except for Z, Y, X, etc
+        ev_counter = 0
+        for event in natsorted(senten):
+            features, discourse, label = senten[event]
+            for feature in features:
+                role, argument = feature.split(':')
+                role_index = placeholder_dict.index(role)
+                if sent_placeholder[ev_counter][role_index] not in replacements:
+                    sent_placeholder[ev_counter][role_index] = '1'
+            # set discourse connectives
+            if discourse:
+                for connective in discourse:
+                    connective_index = placeholder_dict.index(connective)
+                    sent_placeholder[ev_counter][connective_index] = '1'
+            # set label -- the last element in the sequence
+            sent_placeholder[ev_counter][-1] = label
+            ev_counter += 1
+            # print(sent_placeholder)
+        # write to output the sequence of events of a sentence
+        for seq in sent_placeholder:
+            out2 += '\t'.join(seq) + '\n'
+        out2 += '\n'
+    with open(path_to_file, 'a') as f:
+        f.write(out2)
+    # print(sent_placeholder)
+
 
 
 read_corpus(GMB_path)
