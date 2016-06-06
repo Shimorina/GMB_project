@@ -6,9 +6,8 @@ import xml.etree.ElementTree as ETree
 from collections import defaultdict
 
 
-GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
-# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_t/'
-# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
+# GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data/'
+GMB_path = '/home/anastasia/Documents/the_GMB_corpus/gmb-2.2.0/data_test/'
 # GMB_path = 'C:/Users/Anastassie/Documents/Loria/GMB/gmb-2.2.0/data_test'
 roles = ['agent', 'asset', 'attribute', 'beneficiary', 'cause', 'co-agent', 'co-theme', 'destination', 'extent',
          'experiencer', 'frequency', 'goal', 'initial_location', 'instrument', 'location', 'manner', 'material',
@@ -67,9 +66,13 @@ def read_corpus(gmb_path):
             csvwriter.writerow(['Subcorpus', 'Path', 'Token', 'Offset', 'CCG cat', 'Normalised cat', 'Refined cat',
                             'Training cat', 'Agent-1', 'Patient-1', 'Sentence', 'Guess Offset'])
         with open('./data_by_subcorpus/' + subcorpora[i] + '_pairs.txt', 'w+') as f:
-            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
+            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tDiscourse\tLabel\n')
         with open('./data_by_subcorpus/' + subcorpora[i] + '_sequences.txt', 'w+') as f:
-            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
+            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tDiscourse\tLabel\n')
+        with open('./data_by_subcorpus/' + subcorpora[i] + '_pairs_discourse.txt', 'w+') as f:
+            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tDiscourse\tLabel\n')
+        with open('./data_by_subcorpus/' + subcorpora[i] + '_sequences_discourse.txt', 'w+') as f:
+            f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tDiscourse\tLabel\n')
 
     with open('training_data_pairs_all.txt', 'w+') as f:
         f.write('#Agent\tPatient\tAgent-1\tPatient-1\tTheme\tTheme-1\tRecipient\tRecipient-1\tTopic\tSyntacticLabel\n')
@@ -312,7 +315,20 @@ def event_relation(drg_tuples, event_id):
     Walk the DR graph and extract all event relations with their attributes.
     :param drg_tuples: the DRG -- a list of tuples where two nodes are connected with an edge
     :param event_id: id of the event in a DRG tuple, e.g. k3:p1:e5
-    :return:
+    :return: them_roles_smart: list of thematic roles only with one argument -- recipient:x4
+                    them_roles: list of thematic roles with arguments -- agent(e3, x2)
+                    temporalities: list of temporal relations -- temp_included(e1, t2)
+                    relations: list of relations between an event and an adverbial phrase -- on(e3, x8) [on]
+                    relations_events: list of relations between events -- for(e23, e24)
+                    relations_event_prop: list of relations between an event and a proposition -- for(e19, p6)
+                    attributes: list of attributes (arg edges) -- 4(x22), also(e10) [also]
+                    instances: list of entities involved in roles, relations, and attributes -- k1:x6=k1:x5, people(x5), bombing(x8)
+                    surfaces: list of surface forms (are marked as surface in DRG) -- and
+                    propositions: list of propositions -- dominates(k13:p4, k14), k14:e17, dominates(k13:p4, k15), k15:e18
+                    connectives: list of referents (the part of DRG only) -- referent "to" (p4)
+                    connectives2: list of referents which are present in equivalence relations (x6=x5) in instances -- referent "who" (x41)
+                    pronoms: list of pairs -- agent-1|||False, in|||False -- where the first element is the argument and
+                    the second is the output of the function "pronominalisation_check" (True or False)
     """
     # conditions ['agent', 'e1', 'x4'] : e.g. "agent (e1, x4)", "temp_included(e20, t13)"
     current_triple = ['REL', 'INT', 'EXT']
